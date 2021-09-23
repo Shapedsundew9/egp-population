@@ -1,0 +1,165 @@
+{
+    "_ac_count": {
+        "default": "0",
+        "type": "BIGINT"
+    },
+    "_alpha_class": {
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0]",
+        "type": "DOUBLE PRECISION[4]"
+    },
+    "_e_count": {
+        "default": "ARRAY[0]",
+        "type": "BIGINT[]"
+    },
+    "_evolvability": {
+        "default": "ARRAY[0.0]",
+        "type": "DOUBLE PRECISION[]"
+    },
+    "_f_count": {
+        "default": "ARRAY[0]",
+        "type": "BIGINT[]"
+    },
+    "_fitness": {
+        "default": "ARRAY[0.0]",
+        "type": "DOUBLE PRECISION[]"
+    },
+    "_reference_count": {
+        "default": "0",
+        "type": "BIGINT"
+    },
+    "ac_count": {
+        "default": "0",
+        "type": "BIGINT"
+    },
+    "alpha_class": {
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0]",
+        "type": "DOUBLE PRECISION[4]"
+    },
+    "ancestor_a_ref": {
+        "nullable": true,
+        "type": "BIGINT"
+    },
+    "ancestor_b_ref": {
+        "nullable": true,
+        "type": "BIGINT"
+    },
+    "code_depth": {
+        "default": "0",
+        "type": "INTEGER"
+    },
+    "codon_depth": {
+        "default": "0",
+        "type": "INTEGER"
+    },
+    "created": {
+        "default": "NOW()",
+        "type": "TIMESTAMP"
+    },
+    "creator": {
+        "nullable": true,
+        "type": "UUID"
+    },
+    "e_count": {
+        "default": "ARRAY[0]",
+        "type": "BIGINT[]"
+    },
+    "evolvability": {
+        "default": "ARRAY[0.0]",
+        "type": "DOUBLE PRECISION[]"
+    },
+    "f_count": {
+        "default": "ARRAY[0]",
+        "type": "BIGINT[]"
+    },
+    "fitness": {
+        "default": "ARRAY[0.0]",
+        "type": "DOUBLE PRECISION[]"
+    },
+    "gca_ref": {
+        "nullable": true,
+        "type": "BIGINT"
+    },
+    "gcb_ref": {
+        "nullable": true,
+        "type": "BIGINT"
+    },
+    "generation": {
+        "default": "0",
+        "type": "BIGINT"
+    },
+    "graph": {
+        "type": "BYTEA"
+    },
+    "igraph": {
+        "nullable": true,
+        "type": "BYTEA"
+    },
+    "individual": {
+        "type": "BOOLEAN",
+        "default": false
+    },
+    "input_types": {
+        "index": "gin",
+        "nullable": true,
+        "type": "INTEGER[]"
+    },
+    "inputs": {
+        "index": "btree",
+        "nullable": true,
+        "type": "BYTEA"
+    },
+    "meta_data": {
+        "nullable": true,
+        "type": "BYTEA"
+    },
+    "num_codes": {
+        "default": "0",
+        "type": "INTEGER"
+    },
+    "num_unique_codes": {
+        "default": "0",
+        "type": "INTEGER"
+    },
+    "opt_num_codons": {
+        "default": "0",
+        "type": "INTEGER"
+    },
+    "output_types": {
+        "index": "gin",
+        "nullable": true,
+        "type": "INTEGER[]"
+    },
+    "outputs": {
+        "index": "btree",
+        "nullable": true,
+        "type": "BYTEA"
+    },
+    "pgc_ref": {
+        "nullable": true,
+        "type": "BIGINT"
+    },
+    "properties": {
+        "default": "0",
+        "type": "BIGINT"
+    },
+    "raw_num_codons": {
+        "default": "0",
+        "type": "INTEGER"
+    },
+    "ref": {
+        "primary_key": true,
+        "type": "BIGINT"
+    },
+    "reference_count": {
+        "default": "0",
+        "type": "BIGINT"
+    },
+    "signature": {
+        "nullable": true,
+        "type": "BYTEA"
+    },
+    "updated": {
+        "default": "NOW()",
+        "type": "TIMESTAMP"
+    }
+}
