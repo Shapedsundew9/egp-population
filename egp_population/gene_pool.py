@@ -2,24 +2,46 @@
 
 
 from copy import deepcopy
+from functools import partial
 from os.path import dirname, join
-from logging import DEBUG, NullHandler, getLogger
+from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
 from json import load
-from egp_genomic_library.genomic_library import compress_json, decompress_json, sql_functions
+from egp_genomic_library.genomic_library import compress_json, decompress_json, sql_functions, UPDATE_STR, UPDATE_RETURNING_COLS, HIGHER_LAYER_COLS, sha256_to_str
 from egp_physics.ep_type import vtype
-from egp_physics.gc_type import eGC, interface_definition, gGC
+from egp_physics.gc_type import eGC, interface_definition, gGC, random_reference
+from egp_physics.physics import stablise
+from egp_physics.gc_graph import gc_graph
+
 from pypgtable import table
 
 
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
-_LOGIT = _logger.getEffectiveLevel() == DEBUG
+_LOG_DEBUG = _logger.isEnabledFor(DEBUG)
+_LOG_INFO = _logger.isEnabledFor(INFO)
+_LOG_WARN = _logger.isEnabledFor(WARN)
+_LOG_ERROR = _logger.isEnabledFor(ERROR)
+_LOG_FATAL = _logger.isEnabledFor(FATAL)
+
+
+_MODIFIED_FUNC = lambda x: x['modified']
+_UPDATE_RETURNING_COLS = tuple((c for c in filter(lambda x: x != 'signature', UPDATE_RETURNING_COLS))) + ('ref',)
+
+
+def compress_igraph(x):
+    """Extract the internal representation and compress."""
+    return compress_json(x.graph)
+
+
+def decompress_igraph(x):
+    """Create a gc_graph() from an decompressed internal representation."""
+    return gc_graph(internal=decompress_json(x))
 
 
 _CONVERSIONS = (
     ('graph', compress_json, decompress_json),
     ('meta_data', compress_json, decompress_json),
-    ('igraph', compress_json, decompress_json)
+    ('igraph', compress_igraph, decompress_igraph)
 )
 
 
@@ -31,14 +53,16 @@ _PTR_MAP = {
 
 with open(join(dirname(__file__), "formats/table_format.json"), "r") as file_ptr:
     _GP_TABLE_SCHEMA = load(file_ptr)
-_HIGHER_LAYER_COLS = tuple((key for key in filter(lambda x: x[0] == '_', _GP_TABLE_SCHEMA)))
-_UPDATE_RETURNING_COLS = tuple((x[1:] for x in _HIGHER_LAYER_COLS)) + ('updated', 'created')
 
 
-# Initial GC query
-_INITIAL_GC_SQL = ('WHERE "input_types"={input_types} AND "inputs"={inputs} '
-                   'AND "output_types"={output_types} AND "outputs"={outputs} '
-                   'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT {limit}')
+# GC queries
+_SIGNATURE_SQL = 'WHERE {signature} in {matches}'
+_INITIAL_GC_EX_SQL = ('WHERE {input_types}={itypes} AND {inputs}={iidx} '
+                      'AND {output_types}={otypes} AND {outputs}={oidx} '
+                      'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT {limit}')
+_INITIAL_GC_SQL = ('WHERE {input_types}={itypes} AND {inputs}={iidx} '
+                   'AND {output_types}={otypes} AND {outputs}={oidx} '
+                   'ORDER BY RANDOM() LIMIT {limit}')
 
 
 # The default config
@@ -99,26 +123,44 @@ class gene_pool():
         """
         self._gl = genomic_library
         self._pool = table(config)
+        self._update_str = UPDATE_STR.replace('__table__', config['table'])
+        self.encode_value = self._pool.encode_value
+        self.select = partial(self._gl.select, container='pkdict')
         if self._pool.raw.creator:
-            with open(join(dirname(__file__), 'data/gl_functions.sql'), 'r') as fileptr:
-                self._pool.arbitrary_sql(sql_functions())
+            self._pool.arbitrary_sql(sql_functions())
 
-    def encode_value(self, column, value):
-        """Encode value using the registered conversion function for column.
 
-        If no conversion function is registered value is returned unchanged.
-        This function is provided to create encoded literals in query functions.
+    def _reference(self, gcs):
+        """Create local references for genomic library GCs.
+
+        gcs is modified by this method.
 
         Args
         ----
-        column (str): Column name for value.
-        value  (obj): Value to encode.
+        gcs (pkdict): Genomic library recursive GC select results.
 
         Returns
         -------
-        (obj): Encoded value
+        gcs
         """
-        return self._pool.encode_value(column, value)
+        for gc in gcs.values():
+            if 'ref' not in gc:
+                gc['ref'] = random_reference()
+
+            gca = gc['gca']
+            if gca is not None and 'gca_ref' not in gc:
+                if 'ref' not in gcs[gca]:
+                    gcs[gca]['ref'] = random_reference()
+                gc['gca_ref'] = gcs[gca]['ref']
+
+            gcb = gc['gcb']
+            if gcb is not None and 'gcb_ref' not in gc:
+                if 'ref' not in gcs[gcb]:
+                    gcs[gcb]['ref'] = random_reference()
+                gc['gcb_ref'] = gcs[gcb]['ref']
+
+        return gcs
+
 
     def initialize(self, inputs, outputs, exclusions=tuple(), num=1, vt=vtype.OBJECT):
         """Create num valid GC's with the specified inputs & outputs.
@@ -127,7 +169,7 @@ class gene_pool():
         creating new GC's. If there are more GC's in the GMS that meet the
         criteria than num then the returned GC's will be randomly selected.
         If there are less then valid GC's with the correct inputs and outputs
-        will be created randomly.
+        will be created randomly using the GMS.
 
         If the input & output specification is such that no valid GC can be found
         or created None is returned.
@@ -142,74 +184,64 @@ class gene_pool():
 
         Returns
         -------
-        (list(eGC)) or None
+        (list(gGC)) or None
         """
         xputs = {
             'exclude_column': 'signature',
             'exclusions': exclusions,
             'limit': num
         }
-        _, xputs['input_types'], xputs['inputs'] = interface_definition(inputs, vt)
-        _, xputs['output_types'], xputs['outputs'] = interface_definition(outputs, vt)
+        _, xputs['itypes'], xputs['iidx'] = interface_definition(inputs, vt)
+        _, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vt)
 
         # Find the GC's that match and then recursively pull them from the genomic library
-        matches = self._gl.library.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',))
+        sql_str = _INITIAL_GC_EX_SQL if exclusions else _INITIAL_GC_SQL
+        matches = tuple(m[0] for m in self._gl.library.raw.select(sql_str, literals=xputs, columns=('signature',)))
         _logger.info(f'Found {len(matches)} GCs matching input and output criteria.')
-        if _LOGIT:
-            _logger.debug(f'GC signatures: {matches}.')
-        gcs = self._gl.select('WHERE signature in {matches}', literals={'matches': matches})
-
-        # All GCs pulled from the genomic library need thier higher layer fields set.
-        for gc in gcs.values():
-            for hlk in _HIGHER_LAYER_COLS:
-                gc[hlk] = gc[hlk[1:]]
-
-        # GC's that matched are individuals - the rest genetic flotsam and jetsam
-        for signature in matches:
-            gcs[signature]['individual'] = True
+        if _LOG_DEBUG:
+            _logger.debug(f'GC signatures: {[sha256_to_str(m) for m in matches]}.')
+        if matches:
+            gcs = self._reference(self._gl.select(_SIGNATURE_SQL, literals={'matches': matches}))
+            ggcs = {gc['ref']: gGC(gc, individual=gc['signature'] in matches, modified=True) for gc in gcs.values()}
+        else:
+            ggcs = {}
 
         # If there was not enough fill the rest with gGC's & mark them as individuals too.
-        new_gcs = (eGC(inputs=inputs, outputs=outputs, vt=vt) for _ in range(num - len(matches)))
-        # TODO: ensure eGC is in a steady state then make it a gGC with the individual flag set.
+        for _ in range(num - len(matches)):
+            ggc = gGC(stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt)), individual=True, modified=True)
+            ggcs[ggc['ref']] = ggc
 
-        gcs.update({})
-        return gcs
+        return self.upsert(ggcs)
 
-    def select(self, query_str='', literals={}):
-        """Select genetic codes from the gene pool.
+    def upsert(self, gcs):
+        """Insert or update into the gene_pool.
 
-        The select is done recursively returning all constituent genetic codes and
-        codons.
+        This method modifies gcs.
 
         Args
         ----
-        query_str (str): Query SQL: e.g. '{input_types} @> {inputs}'.
-        literals (dict): Keys are labels used in query_str. Values are literals to replace the labels.
-            NOTE: Literal values for encoded columns must be encoded. See encode_value().
+        gcs (dict(dict)): keys are references and dicts are genetic code
+            entries. Values will be normalised & updated in place.
 
         Returns
         -------
-        (dict(dict)): 'signature' keys with gc values.
+        gcs
         """
-        return self._library.recursive_select(query_str, literals, container='pkdict')
+        # TODO: This can be optimised to further minimise the amount of data munging of unmodified values.
+        modified_gcs = (gc for gc in filter(_MODIFIED_FUNC, gcs.values()))
+        for updated_gc in self._pool.upsert(modified_gcs, self._update_str, {}, _UPDATE_RETURNING_COLS):
+            gc = gcs[updated_gc['ref']]
+            gc.update(updated_gc)
+            gc['modified'] = False
+            for col in HIGHER_LAYER_COLS:
+                gc[col] = gc[col[1:]]
+        return gcs
 
-    def upsert(self, entries):
-        """Insert or update into the gene_pool.
+    def delete(self, refs):
+        """Delete GCs from the gene pool.
 
         Args
         ----
-        entries (dict(dict)): keys are references and dicts are genetic code
-            entries. Values will be normalised & updated in place
+        refs(iterable(int)): GC 'ref' values to delete.
         """
-        self._normalize(entries)
-        for_insert = (x for x in filter(lambda x: not x.get('_stored', False), entries.values()))
-        for_update = (x for x in filter(lambda x: x.get('_stored', False), entries.values()))
-        updated_entries = self._library.upsert(for_insert, _UPDATE_STR, {}, _UPDATE_RETURNING_COLS, _HIGHER_LAYER_COLS)
-        updated_entries.extend(self._library.update(for_update, _UPDATE_STR, {}, _UPDATE_RETURNING_COLS))
-        for updated_entry in updated_entries:
-            entry = entries[updated_entry['signature']]
-            entry.update(updated_entry)
-            for hlk in _HIGHER_LAYER_COLS:
-                entry[hlk] = entry[hlk[1:]]
-        for entry in entries:
-            entry['_stored'] = True
+        self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': tuple(refs)})

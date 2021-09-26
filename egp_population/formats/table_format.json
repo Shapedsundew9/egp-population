@@ -96,7 +96,7 @@
     },
     "individual": {
         "type": "BOOLEAN",
-        "default": false
+        "default": "false"
     },
     "input_types": {
         "index": "gin",
