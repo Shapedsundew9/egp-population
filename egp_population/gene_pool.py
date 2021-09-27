@@ -2,6 +2,7 @@
 
 
 from copy import deepcopy
+from hashlib import blake2b
 from functools import partial
 from os.path import dirname, join
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
@@ -129,6 +130,7 @@ class gene_pool():
         self._gl = genomic_library
         self._pool = table(config)
         self._update_str = UPDATE_STR.replace('__table__', config['table'])
+        self._interface = None
         self.encode_value = self._pool.encode_value
         self.select = partial(self._gl.select, container='pkdict')
         if self._pool.raw.creator:
@@ -167,10 +169,32 @@ class gene_pool():
         return gcs
 
 
-    def initialize(self, inputs, outputs, exclusions=tuple(), num=1, vt=vtype.OBJECT):
-        """Create num valid GC's with the specified inputs & outputs.
+    def _interface_hash(self, input_eps, output_eps):
+        """Create a 64-bit hash of the population interface definition.
 
-        GC's matching the criteria in the GMS will be given preference over
+        Args
+        ----
+        input_eps (iterable(int)): Iterable of input EP types.
+        output_eps (iterable(int)): Iterable of output EP types.
+
+        Returns
+        -------
+        (int): 64 bit hash as a signed 64 bit int.
+        """
+        h = blake2b(digest_size=8)
+        for i in input_eps:
+            h.update(i.to_bytes(2, 'little'))
+        for o in output_eps:
+            h.update(o.to_bytes(2, 'little'))
+        a = int.from_bytes(h.digest(), 'little')
+        return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
+
+
+    def initialize(self, inputs, outputs, exclusions=tuple(), num=1, vt=vtype.OBJECT):
+        """Fetch or create num valid GC's with the specified inputs & outputs.
+
+        The initial population is constructed
+        GC's matching the criteria in the gene pool will be given preference over
         creating new GC's. If there are more GC's in the GMS that meet the
         criteria than num then the returned GC's will be randomly selected.
         If there are less then valid GC's with the correct inputs and outputs
@@ -196,8 +220,9 @@ class gene_pool():
             'exclusions': exclusions,
             'limit': num
         }
-        _, xputs['itypes'], xputs['iidx'] = interface_definition(inputs, vt)
-        _, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vt)
+        input_eps, xputs['itypes'], xputs['iidx'] = interface_definition(inputs, vt)
+        output_eps, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vt)
+        self._interface = self._interface_hash(input_eps, output_eps)
 
         # Find the GC's that match and then recursively pull them from the genomic library
         matches = tuple(m[0] for m in self._gl.library.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',)))
@@ -205,6 +230,9 @@ class gene_pool():
         if _LOG_DEBUG:
             _logger.debug(f'GC signatures: {[sha256_to_str(m) for m in matches]}.')
         self.pull(matches)
+        for signature in matches:
+            self.pool[signature]['interface'] = self._interface
+            self.pool[signature]['modified'] = True
 
         # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
         # This may require pulling new agc's from the genomic library through steady state exceptions
@@ -212,8 +240,9 @@ class gene_pool():
         # gene pool.
         ggcs = []
         for _ in range(num - len(matches)):
-            for gc in stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt)):
-                ggcs.append(gGC(gc, individual=True, modified=True))
+            gc_list = stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
+            ggcs.append(gGC(gc_list[0], interface=self._interface, modified=True))
+            ggcs.extend((gGC(gc, modified=True) for gc in gc_list[1:]))
         self.add(ggcs)
 
     def add(self, ggcs):
@@ -246,7 +275,7 @@ class gene_pool():
         signatures (iterable(bytes[32])): Signatures to pull from the genomic library.
         """
         gcs = self._reference(self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures}))
-        self.pool = {gc['ref']: gGC(gc, individual=gc['signature'] in signatures, modified=True) for gc in gcs}
+        self.pool = {gc['ref']: gGC(gc, modified=True) for gc in gcs}
         self.pool.update({gc['signature']: self.pool[gc['ref']] for gc in filter(_SIG_NOT_NULL_FUNC, self.pool.values())})
         self.push()
 
