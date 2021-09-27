@@ -25,6 +25,7 @@ _LOG_FATAL = _logger.isEnabledFor(FATAL)
 
 
 _MODIFIED_FUNC = lambda x: x['modified']
+_SIG_NOT_NULL_FUNC = lambda x: x['signature'] is not None
 _UPDATE_RETURNING_COLS = tuple((c for c in filter(lambda x: x != 'signature', UPDATE_RETURNING_COLS))) + ('ref',)
 
 
@@ -56,13 +57,10 @@ with open(join(dirname(__file__), "formats/table_format.json"), "r") as file_ptr
 
 
 # GC queries
-_SIGNATURE_SQL = 'WHERE {signature} in {matches}'
-_INITIAL_GC_EX_SQL = ('WHERE {input_types}={itypes} AND {inputs}={iidx} '
-                      'AND {output_types}={otypes} AND {outputs}={oidx} '
-                      'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT {limit}')
-_INITIAL_GC_SQL = ('WHERE {input_types}={itypes} AND {inputs}={iidx} '
-                   'AND {output_types}={otypes} AND {outputs}={oidx} '
-                   'ORDER BY RANDOM() LIMIT {limit}')
+_SIGNATURE_SQL = 'WHERE ({signature} in {matches}) IS TRUE'
+_INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs}={iidx} '
+                      'AND {output_types} = {otypes} AND {outputs}={oidx} '
+                      'AND ({exclude_column} NOT IN {exclusions}) IS NOT FALSE ORDER BY RANDOM() LIMIT {limit}')
 
 
 # The default config
@@ -76,6 +74,7 @@ _DEFAULT_CONFIG = {
     'create_table': True,
     'create_db': True,
     'conversions': _CONVERSIONS,
+    'expand_empty_tuple': True
 }
 
 
@@ -97,9 +96,11 @@ class gene_pool():
     The gene_pool is responsible for:
         1. Populating calculable entry fields.
         2. Providing an application interface to the fields.
+        3. Persistence of updates to the gene pool.
+        4. Local caching of GC's.
 
     The gene pool must be consistent i.e. no entry can depend on a genetic code
-    that is not in the gene_pool or genomic_library.
+    that is not in the gene_pool.
 
     The primary difference with the genomic_library is the presence of transient data
     and the fast (and space saving) UID method of referencing active GC's. For the same
@@ -107,6 +108,9 @@ class gene_pool():
 
     The gene_pool should be more local (faster to access) than the genomic library
     due to the heavy transaction load.
+
+    The public member self.pool is the local cache of gGC's. It is a dictionary
+    mapping both 'ref' and 'signature' kets to gGC's.
     """
 
     def __init__(self, genomic_library, config=_DEFAULT_CONFIG):
@@ -121,6 +125,7 @@ class gene_pool():
         genomic_library (genomic_library): Source of genetic material.
         config(pypgtable config): The config is deep copied by pypgtable.
         """
+        self.pool = {}
         self._gl = genomic_library
         self._pool = table(config)
         self._update_str = UPDATE_STR.replace('__table__', config['table'])
@@ -137,13 +142,13 @@ class gene_pool():
 
         Args
         ----
-        gcs (pkdict): Genomic library recursive GC select results.
+        gcs (list(dict)): Genomic library recursive GC select results.
 
         Returns
         -------
         gcs
         """
-        for gc in gcs.values():
+        for gc in gcs:
             if 'ref' not in gc:
                 gc['ref'] = random_reference()
 
@@ -195,47 +200,67 @@ class gene_pool():
         _, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vt)
 
         # Find the GC's that match and then recursively pull them from the genomic library
-        sql_str = _INITIAL_GC_EX_SQL if exclusions else _INITIAL_GC_SQL
-        matches = tuple(m[0] for m in self._gl.library.raw.select(sql_str, literals=xputs, columns=('signature',)))
+        matches = tuple(m[0] for m in self._gl.library.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',)))
         _logger.info(f'Found {len(matches)} GCs matching input and output criteria.')
         if _LOG_DEBUG:
             _logger.debug(f'GC signatures: {[sha256_to_str(m) for m in matches]}.')
-        if matches:
-            gcs = self._reference(self._gl.select(_SIGNATURE_SQL, literals={'matches': matches}))
-            ggcs = {gc['ref']: gGC(gc, individual=gc['signature'] in matches, modified=True) for gc in gcs.values()}
-        else:
-            ggcs = {}
+        self.pull(matches)
 
-        # If there was not enough fill the rest with gGC's & mark them as individuals too.
+        # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
+        # This may require pulling new agc's from the genomic library through steady state exceptions
+        # in the stabilise() in which case we need to pull in all dependents not already in the
+        # gene pool.
+        ggcs = []
         for _ in range(num - len(matches)):
-            ggc = gGC(stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt)), individual=True, modified=True)
-            ggcs[ggc['ref']] = ggc
+            for gc in stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt)):
+                ggcs.append(gGC(gc, individual=True, modified=True))
+        self.add(ggcs)
 
-        return self.upsert(ggcs)
-
-    def upsert(self, gcs):
-        """Insert or update into the gene_pool.
-
-        This method modifies gcs.
+    def add(self, ggcs):
+        """Add gGGs to the gene pool pulling any sub-GC's from the genomic library as needed.
 
         Args
         ----
-        gcs (dict(dict)): keys are references and dicts are genetic code
-            entries. Values will be normalised & updated in place.
-
-        Returns
-        -------
-        gcs
+        ggcs (iterable(gGC)): gGCs to be added. All referenced GCAs and GCBs must either exist
+        in the ggcs iterable or the genomic library.
         """
+        children = []
+        for ggc in filter(_MODIFIED_FUNC, ggcs):
+            self.pool[ggc['ref']] = ggc
+            gca = ggc.get('gca', None)
+            if gca is not None and gca not in self.pool:
+                children.append(gca)
+            gcb = ggc.get('gcb', None)
+            if gcb is not None and gcb not in self.pool:
+                children.append(gcb)
+        self.pull(children)
+        self.push()
+
+    def pull(self, signatures):
+        """Add aGCs and all sub-GC's recursively from the genomic library to the gene pool.
+
+        aGC's are converted to gGC's.
+
+        Args
+        ----
+        signatures (iterable(bytes[32])): Signatures to pull from the genomic library.
+        """
+        gcs = self._reference(self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures}))
+        self.pool = {gc['ref']: gGC(gc, individual=gc['signature'] in signatures, modified=True) for gc in gcs}
+        self.pool.update({gc['signature']: self.pool[gc['ref']] for gc in filter(_SIG_NOT_NULL_FUNC, self.pool.values())})
+        self.push()
+
+    def push(self):
+        """Insert or update into locally modified gGC's into the persistent gene_pool."""
         # TODO: This can be optimised to further minimise the amount of data munging of unmodified values.
-        modified_gcs = (gc for gc in filter(_MODIFIED_FUNC, gcs.values()))
+        modified_gcs = (gc for gc in filter(_MODIFIED_FUNC, self.pool.values()))
         for updated_gc in self._pool.upsert(modified_gcs, self._update_str, {}, _UPDATE_RETURNING_COLS):
-            gc = gcs[updated_gc['ref']]
+            gc = self.pool[updated_gc['ref']]
             gc.update(updated_gc)
-            gc['modified'] = False
             for col in HIGHER_LAYER_COLS:
                 gc[col] = gc[col[1:]]
-        return gcs
+        for gc in self.pool.values():
+            gc['modified']= False
 
     def delete(self, refs):
         """Delete GCs from the gene pool.
@@ -244,4 +269,8 @@ class gene_pool():
         ----
         refs(iterable(int)): GC 'ref' values to delete.
         """
+        for ref in refs:
+            if self.pool[ref].get('signature', None) is not None:
+                del self.pool[self.pool[ref]['signature']]
+            del self.pool[ref]
         self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': tuple(refs)})

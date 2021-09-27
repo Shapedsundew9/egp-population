@@ -98,6 +98,10 @@
         "type": "BOOLEAN",
         "default": "false"
     },
+    "interface": {
+        "type": "BIGINT",
+        "nullable": true
+    },
     "input_types": {
         "index": "gin",
         "nullable": true,
