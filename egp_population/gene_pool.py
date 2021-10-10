@@ -2,14 +2,13 @@
 
 
 from copy import deepcopy
-from hashlib import blake2b
 from functools import partial
 from os.path import dirname, join
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
 from json import load
 from egp_genomic_library.genomic_library import compress_json, decompress_json, sql_functions, UPDATE_STR, UPDATE_RETURNING_COLS, HIGHER_LAYER_COLS, sha256_to_str
 from egp_physics.ep_type import vtype
-from egp_physics.gc_type import eGC, interface_definition, gGC, random_reference
+from egp_physics.gc_type import eGC, interface_definition, gGC, interface_hash
 from egp_physics.physics import stablise
 from egp_physics.gc_graph import gc_graph
 
@@ -58,10 +57,10 @@ with open(join(dirname(__file__), "formats/table_format.json"), "r") as file_ptr
 
 
 # GC queries
-_SIGNATURE_SQL = 'WHERE ({signature} in {matches}) IS TRUE'
+_SIGNATURE_SQL = 'WHERE ({signature} = ANY({matches}))'
 _INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs}={iidx} '
                       'AND {output_types} = {otypes} AND {outputs}={oidx} '
-                      'AND ({exclude_column} NOT IN {exclusions}) IS NOT FALSE ORDER BY RANDOM() LIMIT {limit}')
+                      'AND NOT({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT {limit}')
 
 
 # The default config
@@ -132,65 +131,12 @@ class gene_pool():
         self._update_str = UPDATE_STR.replace('__table__', config['table'])
         self._interface = None
         self.encode_value = self._pool.encode_value
-        self.select = partial(self._gl.select, container='pkdict')
+        self.select = partial(self._gl.select, container='dict')
         if self._pool.raw.creator:
-            self._pool.arbitrary_sql(sql_functions())
+            self._pool.raw.arbitrary_sql(sql_functions(), read=False)
 
 
-    def _reference(self, gcs):
-        """Create local references for genomic library GCs.
-
-        gcs is modified by this method.
-
-        Args
-        ----
-        gcs (list(dict)): Genomic library recursive GC select results.
-
-        Returns
-        -------
-        gcs
-        """
-        for gc in gcs:
-            if 'ref' not in gc:
-                gc['ref'] = random_reference()
-
-            gca = gc['gca']
-            if gca is not None and 'gca_ref' not in gc:
-                if 'ref' not in gcs[gca]:
-                    gcs[gca]['ref'] = random_reference()
-                gc['gca_ref'] = gcs[gca]['ref']
-
-            gcb = gc['gcb']
-            if gcb is not None and 'gcb_ref' not in gc:
-                if 'ref' not in gcs[gcb]:
-                    gcs[gcb]['ref'] = random_reference()
-                gc['gcb_ref'] = gcs[gcb]['ref']
-
-        return gcs
-
-
-    def _interface_hash(self, input_eps, output_eps):
-        """Create a 64-bit hash of the population interface definition.
-
-        Args
-        ----
-        input_eps (iterable(int)): Iterable of input EP types.
-        output_eps (iterable(int)): Iterable of output EP types.
-
-        Returns
-        -------
-        (int): 64 bit hash as a signed 64 bit int.
-        """
-        h = blake2b(digest_size=8)
-        for i in input_eps:
-            h.update(i.to_bytes(2, 'little'))
-        for o in output_eps:
-            h.update(o.to_bytes(2, 'little'))
-        a = int.from_bytes(h.digest(), 'little')
-        return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
-
-
-    def initialize(self, inputs, outputs, exclusions=tuple(), num=1, vt=vtype.OBJECT):
+    def initialize(self, inputs, outputs, exclusions=[], num=1, vt=vtype.OBJECT):
         """Fetch or create num valid GC's with the specified inputs & outputs.
 
         The initial population is constructed
@@ -222,17 +168,14 @@ class gene_pool():
         }
         input_eps, xputs['itypes'], xputs['iidx'] = interface_definition(inputs, vt)
         output_eps, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vt)
-        self._interface = self._interface_hash(input_eps, output_eps)
+        self._interface = interface_hash(input_eps, output_eps)
 
         # Find the GC's that match and then recursively pull them from the genomic library
-        matches = tuple(m[0] for m in self._gl.library.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',)))
+        matches = list(m[0] for m in self._gl.library.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',)))
         _logger.info(f'Found {len(matches)} GCs matching input and output criteria.')
         if _LOG_DEBUG:
             _logger.debug(f'GC signatures: {[sha256_to_str(m) for m in matches]}.')
         self.pull(matches)
-        for signature in matches:
-            self.pool[signature]['interface'] = self._interface
-            self.pool[signature]['modified'] = True
 
         # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
         # This may require pulling new agc's from the genomic library through steady state exceptions
@@ -263,10 +206,10 @@ class gene_pool():
             if gcb is not None and gcb not in self.pool:
                 children.append(gcb)
         self.pull(children)
-        self.push()
+
 
     def pull(self, signatures):
-        """Add aGCs and all sub-GC's recursively from the genomic library to the gene pool.
+        """Pull aGCs and all sub-GC's recursively from the genomic library to the gene pool.
 
         aGC's are converted to gGC's.
 
@@ -274,9 +217,8 @@ class gene_pool():
         ----
         signatures (iterable(bytes[32])): Signatures to pull from the genomic library.
         """
-        gcs = self._reference(self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures}))
-        self.pool = {gc['ref']: gGC(gc, modified=True) for gc in gcs}
-        self.pool.update({gc['signature']: self.pool[gc['ref']] for gc in filter(_SIG_NOT_NULL_FUNC, self.pool.values())})
+        gcs = self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures})
+        self.pool.update({gc['ref']: gc for gc in map(partial(gGC, modified=True), gcs)})
         self.push()
 
     def push(self):
@@ -288,7 +230,7 @@ class gene_pool():
             gc.update(updated_gc)
             for col in HIGHER_LAYER_COLS:
                 gc[col] = gc[col[1:]]
-        for gc in self.pool.values():
+        for gc in modified_gcs:
             gc['modified']= False
 
     def delete(self, refs):
