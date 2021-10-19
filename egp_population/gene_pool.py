@@ -1,6 +1,5 @@
 """Gene pool management for Erasmus GP."""
 
-
 from copy import deepcopy
 from functools import partial
 from os.path import dirname, join
@@ -13,6 +12,7 @@ from egp_physics.physics import stablise
 from egp_physics.gc_graph import gc_graph
 
 from pypgtable import table
+from .gpm import create_callable, callable_string
 
 
 _logger = getLogger(__name__)
@@ -27,6 +27,7 @@ _LOG_FATAL = _logger.isEnabledFor(FATAL)
 _MODIFIED_FUNC = lambda x: x['modified']
 _SIG_NOT_NULL_FUNC = lambda x: x['signature'] is not None
 _UPDATE_RETURNING_COLS = tuple((c for c in filter(lambda x: x != 'signature', UPDATE_RETURNING_COLS))) + ('ref',)
+_GENE_POOL_MODULE = 'gpm'
 
 
 def compress_igraph(x):
@@ -131,7 +132,7 @@ class gene_pool():
         self._update_str = UPDATE_STR.replace('__table__', config['table'])
         self._interface = None
         self.encode_value = self._pool.encode_value
-        self.select = partial(self._gl.select, container='dict')
+        self.select = self._pool.select
         if self._pool.raw.creator:
             self._pool.raw.arbitrary_sql(sql_functions(), read=False)
 
@@ -173,7 +174,7 @@ class gene_pool():
         # Find the GC's that match and then recursively pull them from the genomic library
         matches = list(m[0] for m in self._gl.library.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',)))
         _logger.info(f'Found {len(matches)} GCs matching input and output criteria.')
-        if _LOG_DEBUG:
+        if _LOG_INFO and matches:
             _logger.debug(f'GC signatures: {[sha256_to_str(m) for m in matches]}.')
         self.pull(matches)
 
@@ -182,10 +183,13 @@ class gene_pool():
         # in the stabilise() in which case we need to pull in all dependents not already in the
         # gene pool.
         ggcs = []
+        _logger.info(f'{num - len(matches)} GGCs to create.')
         for _ in range(num - len(matches)):
             gc_list = stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
+            _logger.debug(f'Stabilisation returned {[gc["ref"] for gc in gc_list]}')
             ggcs.append(gGC(gc_list[0], interface=self._interface, modified=True))
             ggcs.extend((gGC(gc, modified=True) for gc in gc_list[1:]))
+        _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
         self.add(ggcs)
 
     def add(self, ggcs):
@@ -199,14 +203,16 @@ class gene_pool():
         children = []
         for ggc in filter(_MODIFIED_FUNC, ggcs):
             self.pool[ggc['ref']] = ggc
+            _logger.debug(f'Added {ggc["ref"]} to local cached gene pool.')
             gca = ggc.get('gca', None)
-            if gca is not None and gca not in self.pool:
+            if gca is not None and ggc['gca_ref'] not in self.pool:
                 children.append(gca)
+                _logger.debug(f'Appended {gca} to list to pull from the Genomic Library.')
             gcb = ggc.get('gcb', None)
-            if gcb is not None and gcb not in self.pool:
+            if gcb is not None and ggc['gcb_ref'] not in self.pool:
                 children.append(gcb)
+                _logger.debug(f'Appended {gcb} to list to pull from the Genomic Library.')
         self.pull(children)
-
 
     def pull(self, signatures):
         """Pull aGCs and all sub-GC's recursively from the genomic library to the gene pool.
@@ -217,6 +223,7 @@ class gene_pool():
         ----
         signatures (iterable(bytes[32])): Signatures to pull from the genomic library.
         """
+        _logger.debug(f'Recursively pulling {signatures} into Gene Pool.')
         gcs = self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures})
         self.pool.update({gc['ref']: gc for gc in map(partial(gGC, modified=True), gcs)})
         self.push()
@@ -224,13 +231,17 @@ class gene_pool():
     def push(self):
         """Insert or update into locally modified gGC's into the persistent gene_pool."""
         # TODO: This can be optimised to further minimise the amount of data munging of unmodified values.
-        modified_gcs = (gc for gc in filter(_MODIFIED_FUNC, self.pool.values()))
+        modified_gcs = [gc for gc in filter(_MODIFIED_FUNC, self.pool.values())]
         for updated_gc in self._pool.upsert(modified_gcs, self._update_str, {}, _UPDATE_RETURNING_COLS):
             gc = self.pool[updated_gc['ref']]
             gc.update(updated_gc)
             for col in HIGHER_LAYER_COLS:
                 gc[col] = gc[col[1:]]
         for gc in modified_gcs:
+            if gc.get('exec', None) is None:
+                create_callable(gc)
+                if _LOG_DEBUG:
+                    _logger.debug(f'GC callable added to Gene Pool Module:\n{callable_string(gc)}')
             gc['modified']= False
 
     def delete(self, refs):
@@ -244,4 +255,5 @@ class gene_pool():
             if self.pool[ref].get('signature', None) is not None:
                 del self.pool[self.pool[ref]['signature']]
             del self.pool[ref]
-        self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': tuple(refs)})
+        if refs:
+            self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': tuple(refs)})

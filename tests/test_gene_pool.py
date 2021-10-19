@@ -38,7 +38,7 @@ def test_initialisation_1():
 def test_initialisation_3():
     """Initialise the gene pool with a non-codon interface definition.
 
-    Using a codon interface definition guarantees a match.
+    Forces new GC's to be generated.
     """
     gp = gene_pool(_GL, _GP_CONFIG)
     gp.initialize((0, 0, 0.0, 0.0), (0.0,), num=5)
