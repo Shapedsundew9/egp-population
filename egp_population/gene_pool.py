@@ -12,7 +12,7 @@ from egp_physics.physics import stablise
 from egp_physics.gc_graph import gc_graph
 
 from pypgtable import table
-from .gpm import create_callable, callable_string
+from .gpm import create_callable
 
 
 _logger = getLogger(__name__)
@@ -177,6 +177,8 @@ class gene_pool():
         if _LOG_INFO and matches:
             _logger.debug(f'GC signatures: {[sha256_to_str(m) for m in matches]}.')
         self.pull(matches)
+        for gc in filter(lambda x: x['signature'] in matches, self.pool.values()):
+            gc['individual'] = gc['modified'] = True
 
         # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
         # This may require pulling new agc's from the genomic library through steady state exceptions
@@ -185,10 +187,9 @@ class gene_pool():
         ggcs = []
         _logger.info(f'{num - len(matches)} GGCs to create.')
         for _ in range(num - len(matches)):
-            gc_list = stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
-            _logger.debug(f'Stabilisation returned {[gc["ref"] for gc in gc_list]}')
-            ggcs.append(gGC(gc_list[0], interface=self._interface, modified=True))
-            ggcs.extend((gGC(gc, modified=True) for gc in gc_list[1:]))
+            rgc, fgc_dict = stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
+            ggcs.append(gGC(rgc, interface=self._interface, modified=True, individual=True))
+            ggcs.extend((gGC(gc, modified=True) for gc in fgc_dict.values()))
         _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
         self.add(ggcs)
 
@@ -203,15 +204,15 @@ class gene_pool():
         children = []
         for ggc in filter(_MODIFIED_FUNC, ggcs):
             self.pool[ggc['ref']] = ggc
-            _logger.debug(f'Added {ggc["ref"]} to local cached gene pool.')
+            if _LOG_DEBUG: _logger.debug(f'Added {ggc["ref"]} to local cached gene pool.')
             gca = ggc.get('gca', None)
             if gca is not None and ggc['gca_ref'] not in self.pool:
                 children.append(gca)
-                _logger.debug(f'Appended {gca} to list to pull from the Genomic Library.')
+                if _LOG_DEBUG: _logger.debug(f'Appended {gca} to list to pull from the Genomic Library.')
             gcb = ggc.get('gcb', None)
             if gcb is not None and ggc['gcb_ref'] not in self.pool:
                 children.append(gcb)
-                _logger.debug(f'Appended {gcb} to list to pull from the Genomic Library.')
+                if _LOG_DEBUG: _logger.debug(f'Appended {gcb} to list to pull from the Genomic Library.')
         self.pull(children)
 
     def pull(self, signatures):
@@ -223,7 +224,7 @@ class gene_pool():
         ----
         signatures (iterable(bytes[32])): Signatures to pull from the genomic library.
         """
-        _logger.debug(f'Recursively pulling {signatures} into Gene Pool.')
+        if _LOG_DEBUG: _logger.debug(f'Recursively pulling {signatures} into Gene Pool.')
         gcs = self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures})
         self.pool.update({gc['ref']: gc for gc in map(partial(gGC, modified=True), gcs)})
         self.push()
@@ -240,8 +241,6 @@ class gene_pool():
         for gc in modified_gcs:
             if gc.get('exec', None) is None:
                 create_callable(gc)
-                if _LOG_DEBUG:
-                    _logger.debug(f'GC callable added to Gene Pool Module:\n{callable_string(gc)}')
             gc['modified']= False
 
     def delete(self, refs):
@@ -257,3 +256,7 @@ class gene_pool():
             del self.pool[ref]
         if refs:
             self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': tuple(refs)})
+
+    def individuals(self):
+        """Return a generator of individuals."""
+        return (gc for gc in filter(lambda x: x['individual'], self.pool.values()))

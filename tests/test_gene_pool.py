@@ -1,11 +1,14 @@
 """Test the Gene Pool."""
 
-
+from logging import NullHandler, getLogger
 from egp_population.gene_pool import default_config as gp_default_config
 from egp_population.gene_pool import gene_pool
 from egp_genomic_library import default_config as gl_default_config
 from egp_genomic_library import genomic_library
 
+# Logging
+_logger = getLogger(__name__)
+_logger.addHandler(NullHandler())
 
 # Create a genomic library
 _GL_CONFIG = gl_default_config()
@@ -41,5 +44,17 @@ def test_initialisation_3():
     Forces new GC's to be generated.
     """
     gp = gene_pool(_GL, _GP_CONFIG)
-    gp.initialize((0, 0, 0.0, 0.0), (0.0,), num=5)
-    assert len(gp._pool) == 5
+    gp.initialize((0, 0, 0.0, 0.0), (0.0,), num=5000)
+    for individual in gp.individuals():
+        _logger.debug(f"Executing individual ref {individual['ref']}:")
+        try:
+            retval = individual['exec']((1, 2, 1.0, 2.0))
+        except (ZeroDivisionError, ValueError, IndexError) as e:
+            _logger.warning(f"Individual ref {individual['ref']} threw exception '{str(e)}'")
+
+        assert isinstance(retval, tuple)
+        assert isinstance(retval[0], float)
+
+
+if __name__ == "__main__":
+    test_initialisation_3()
