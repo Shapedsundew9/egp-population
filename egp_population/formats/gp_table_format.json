@@ -94,10 +94,6 @@
         "nullable": true,
         "type": "BYTEA"
     },
-    "individual": {
-        "type": "BOOLEAN",
-        "default": "false"
-    },
     "interface": {
         "type": "BIGINT",
         "nullable": true
@@ -141,6 +137,10 @@
     "pgc_ref": {
         "nullable": true,
         "type": "BIGINT"
+    },
+    "population": {
+        "nullable": true,
+        "type": "SMALLINT"
     },
     "properties": {
         "default": "0",

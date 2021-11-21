@@ -1,0 +1,21 @@
+{
+    "idx": {
+        "type": "SERIAL",
+        "primary_key": true
+    },
+    "size":  {
+        "type": "INT"
+    },
+    "name": {
+        "nullable": true,
+        "type": "VARCHAR"
+    },
+    "description": {
+        "nullable": true,
+        "type": "VARCHAR"
+    },
+    "meta_data": {
+        "nullable": true,
+        "type": "VARCHAR"
+    }
+}

@@ -5,6 +5,7 @@ from egp_population.gene_pool import default_config as gp_default_config
 from egp_population.gene_pool import gene_pool
 from egp_genomic_library import default_config as gl_default_config
 from egp_genomic_library import genomic_library
+from egp_physics.ep_type import vtype
 
 # Logging
 _logger = getLogger(__name__)
@@ -34,7 +35,7 @@ def test_initialisation_1():
     Using a codon interface definition guarantees a match.
     """
     gp = gene_pool(_GL, _GP_CONFIG)
-    gp.initialize((0, 0), (0,))
+    gp.upsert_population({'size': 1, 'inputs': (0, 0), 'outputs': (0,), 'vt': vtype.OBJECT})
     assert len(gp._pool) == 1
 
 
@@ -44,8 +45,8 @@ def test_initialisation_3():
     Forces new GC's to be generated.
     """
     gp = gene_pool(_GL, _GP_CONFIG)
-    gp.initialize((0, 0, 0.0, 0.0), (0.0,), num=5000)
-    for individual in gp.individuals():
+    config = gp.upsert_population({'size': 100, 'inputs': (0, 0, 0.0, 0.0), 'outputs': (0.0,), 'vt': vtype.OBJECT})
+    for individual in gp.individuals(config['idx']):
         _logger.debug(f"Executing individual ref {individual['ref']}:")
         try:
             retval = individual['exec']((1, 2, 1.0, 2.0))

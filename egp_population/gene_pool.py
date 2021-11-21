@@ -28,6 +28,7 @@ _MODIFIED_FUNC = lambda x: x['modified']
 _SIG_NOT_NULL_FUNC = lambda x: x['signature'] is not None
 _UPDATE_RETURNING_COLS = tuple((c for c in filter(lambda x: x != 'signature', UPDATE_RETURNING_COLS))) + ('ref',)
 _GENE_POOL_MODULE = 'gpm'
+_GPP_COLUMNS = ('idx', 'size', 'name', 'description', 'meta_data')
 
 
 def compress_igraph(x):
@@ -40,7 +41,7 @@ def decompress_igraph(x):
     return gc_graph(internal=decompress_json(x))
 
 
-_CONVERSIONS = (
+_GP_CONVERSIONS = (
     ('graph', compress_json, decompress_json),
     ('meta_data', compress_json, decompress_json),
     ('igraph', compress_igraph, decompress_igraph)
@@ -53,8 +54,10 @@ _PTR_MAP = {
 }
 
 
-with open(join(dirname(__file__), "formats/table_format.json"), "r") as file_ptr:
+with open(join(dirname(__file__), "formats/gp_table_format.json"), "r") as file_ptr:
     _GP_TABLE_SCHEMA = load(file_ptr)
+with open(join(dirname(__file__), "formats/gpp_table_format.json"), "r") as file_ptr:
+    _GPP_TABLE_SCHEMA = load(file_ptr)
 
 
 # GC queries
@@ -64,7 +67,7 @@ _INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs}={iidx} '
                       'AND NOT({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT {limit}')
 
 
-# The default config
+# The gene pool default config
 _DEFAULT_CONFIG = {
     'database': {
         'dbname': 'erasmus'
@@ -74,8 +77,7 @@ _DEFAULT_CONFIG = {
     'schema': _GP_TABLE_SCHEMA,
     'create_table': True,
     'create_db': True,
-    'conversions': _CONVERSIONS,
-    'expand_empty_tuple': True
+    'conversions': _GP_CONVERSIONS
 }
 
 
@@ -129,6 +131,7 @@ class gene_pool():
         self.pool = {}
         self._gl = genomic_library
         self._pool = table(config)
+        self._populations = self._populations_table(config)
         self._update_str = UPDATE_STR.replace('__table__', config['table'])
         self._interface = None
         self.encode_value = self._pool.encode_value
@@ -136,11 +139,58 @@ class gene_pool():
         if self._pool.raw.creator:
             self._pool.raw.arbitrary_sql(sql_functions(), read=False)
 
+    def _populations_table(self, config):
+        """Create a table to store population information.
 
-    def initialize(self, inputs, outputs, exclusions=[], num=1, vt=vtype.OBJECT):
+        The populations table has all the same DB details as the gene
+        pool.
+
+        Args
+        ----
+        config (gene_pool config): The config of the gene pool
+
+        Returns
+        -------
+        pypgtable.table
+        """
+        _config = {'database': config['database']}
+        _config['table'] = config['table'] + '_populations'
+        _config['create_table'] = True
+        _config['schema'] = _GPP_TABLE_SCHEMA
+        return table(_config)
+
+    def upsert_population(self, config={}):
+        """Update or insert a population into the gene pool.
+
+        Args
+        ----
+        idx (int): If exists the population data to update else a new population with the next index is created.
+        size (int): Defines the population size. A value of <=0 deletes all the populations GC's.
+        name (str): An arbitary string giving a short name for the population.
+        description (str): An arbitary string with a longer description of the population.
+        meta_data (str): Additional data about the population stored as a string.
+        """
+        data = {k: v for k, v in filter(lambda x:x[0] in _GPP_TABLE_SCHEMA, config.items())}
+        if config.get('idx', None) is None:
+            idx = next(self._populations.insert((data,), ('idx',)))['idx']
+            size = data['size']
+        else:
+            literals = {'_' + k: v for k, v in data.items()}
+            update_str = ', '.join((f"{{{c}}}={{{l}}}" for c, l in zip(data.keys(), literals.keys())))
+            retval = next(self._populations.update(update_str, '{idx}={_idx}', literals, ('idx', 'EXCLUDED.size')))
+            if not retval:
+                raise ValueError(f"Index {data['idx']} not found in populations table: Cannot update population definition.")
+            idx = retval['idx']
+            size = data['size'] - retval['size']
+        self.populate(config['inputs'], config['outputs'], idx, num=size, vt=config['vt'])
+        config['idx'] = idx
+        return config
+
+    def populate(self, inputs, outputs, pop_idx, exclusions=[], num=1, vt=vtype.OBJECT):
         """Fetch or create num valid GC's with the specified inputs & outputs.
 
-        The initial population is constructed
+        The construct a population with inputs and outputs as defined by inputs, outputs & vt.
+
         GC's matching the criteria in the gene pool will be given preference over
         creating new GC's. If there are more GC's in the GMS that meet the
         criteria than num then the returned GC's will be randomly selected.
@@ -154,14 +204,25 @@ class gene_pool():
         ----
         inputs (iterable(object or type)): Input objects of vt type.
         outputs (iteratble(object or type)): Output objects of vt type.
-        gms (object): Genetic Material Source: A gene_pool or genomic_library object.
-        num (int): The number of GC's to create
+        pop_idx (int): The population index to use for the new individuals.
+        num (int): The number of GC's to create (or delete if -ve)
         vt (vtype): See vtype definition.
 
         Returns
         -------
-        (list(gGC)) or None
+        population index (int) or None.
         """
+        # Check the population index exists
+        literals = {'pop_idx': pop_idx}
+        result = next(self._populations.select('WHERE {idx} = {pop_idx}', literals))
+        if not len(result):
+            raise ValueError(f"Population index {pop_idx} was not found.")
+        count = len(tuple(self._pool.raw.select('WHERE {population} = {pop_idx}', literals, columns=('population',))))
+        num = result['size'] - count
+        verb, tf = ('Adding', 'to') if num > 0 else ('Deleting', 'from')
+        _logger.info(f"{verb} {abs(num)} GC's {tf} population index: {pop_idx}, name: {result['name']}")
+
+        # Create search criteria for the genomic library
         xputs = {
             'exclude_column': 'signature',
             'exclusions': exclusions,
@@ -171,27 +232,36 @@ class gene_pool():
         output_eps, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vt)
         self._interface = interface_hash(input_eps, output_eps)
 
-        # Find the GC's that match and then recursively pull them from the genomic library
-        matches = list(m[0] for m in self._gl.library.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',)))
-        _logger.info(f'Found {len(matches)} GCs matching input and output criteria.')
-        if _LOG_INFO and matches:
-            _logger.debug(f'GC signatures: {[sha256_to_str(m) for m in matches]}.')
-        self.pull(matches)
-        for gc in filter(lambda x: x['signature'] in matches, self.pool.values()):
-            gc['individual'] = gc['modified'] = True
+        # Adding to the gene pool
+        if num > 0:
+            # Find the GC's that match and then recursively pull them from the genomic library
+            matches = list(m[0] for m in self._gl.library.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',)))
+            _logger.info(f'Found {len(matches)} GCs matching input and output criteria.')
+            if _LOG_INFO and matches:
+                _logger.debug(f'GC signatures: {[sha256_to_str(m) for m in matches]}.')
+            self.pull(matches)
+            for gc in filter(lambda x: x['signature'] in matches, self.pool.values()):
+                gc['modified'] = True
+                gc['population'] = pop_idx
 
-        # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
-        # This may require pulling new agc's from the genomic library through steady state exceptions
-        # in the stabilise() in which case we need to pull in all dependents not already in the
-        # gene pool.
-        ggcs = []
-        _logger.info(f'{num - len(matches)} GGCs to create.')
-        for _ in range(num - len(matches)):
-            rgc, fgc_dict = stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
-            ggcs.append(gGC(rgc, interface=self._interface, modified=True, individual=True))
-            ggcs.extend((gGC(gc, modified=True) for gc in fgc_dict.values()))
-        _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
-        self.add(ggcs)
+            # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
+            # This may require pulling new agc's from the genomic library through steady state exceptions
+            # in the stabilise() in which case we need to pull in all dependents not already in the
+            # gene pool.
+            ggcs = []
+            _logger.info(f'{num - len(matches)} GGCs to create.')
+            for _ in range(num - len(matches)):
+                rgc, fgc_dict = stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
+                ggcs.append(gGC(rgc, interface=self._interface, modified=True, population=pop_idx))
+                ggcs.extend((gGC(gc, modified=True) for gc in fgc_dict.values()))
+            _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
+            self.add(ggcs)
+
+        # Removing from the gene pool
+        elif num < 0:
+            xputs['limit'] = -num
+            matches = list(m[0] for m in self._pool.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',)))
+            self.delete(matches)
 
     def add(self, ggcs):
         """Add gGGs to the gene pool pulling any sub-GC's from the genomic library as needed.
@@ -227,6 +297,7 @@ class gene_pool():
         if _LOG_DEBUG: _logger.debug(f'Recursively pulling {signatures} into Gene Pool.')
         gcs = self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures})
         self.pool.update({gc['ref']: gc for gc in map(partial(gGC, modified=True), gcs)})
+        #FIXME: Must correctly update higher layer fields & not wipe out this layer.
         self.push()
 
     def push(self):
@@ -250,6 +321,7 @@ class gene_pool():
         ----
         refs(iterable(int)): GC 'ref' values to delete.
         """
+        #FIXME: This needs to recursively delete now unreferenced GC's
         for ref in refs:
             if self.pool[ref].get('signature', None) is not None:
                 del self.pool[self.pool[ref]['signature']]
@@ -257,6 +329,6 @@ class gene_pool():
         if refs:
             self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': tuple(refs)})
 
-    def individuals(self):
+    def individuals(self, pop_idx):
         """Return a generator of individuals."""
-        return (gc for gc in filter(lambda x: x['individual'], self.pool.values()))
+        return (gc for gc in filter(lambda x: x['population'] == pop_idx, self.pool.values()))
