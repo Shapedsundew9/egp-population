@@ -5,7 +5,8 @@ from functools import partial
 from os.path import dirname, join
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
 from json import load
-from egp_genomic_library.genomic_library import compress_json, decompress_json, sql_functions, UPDATE_STR, UPDATE_RETURNING_COLS, HIGHER_LAYER_COLS, sha256_to_str
+from egp_genomic_library.genetic_material_store import genetic_material_store
+from egp_genomic_library.genomic_library import compress_json, decompress_json, UPDATE_STR, UPDATE_RETURNING_COLS, sha256_to_str, sql_functions, HIGHER_LAYER_COLS
 from egp_physics.ep_type import vtype
 from egp_physics.gc_type import eGC, interface_definition, gGC, interface_hash
 from egp_physics.physics import stablise
@@ -48,9 +49,13 @@ _GP_CONVERSIONS = (
 )
 
 
+# Tree structure
+_LEL = 'gca_ref'
+_REL = 'gcb_ref'
+_NL = 'ref'
 _PTR_MAP = {
-    'gca_ref': 'ref',
-    'gcb_ref': 'ref'
+    _LEL: _NL,
+    _REL: _NL
 }
 
 
@@ -93,7 +98,7 @@ def default_config():
     return deepcopy(_DEFAULT_CONFIG)
 
 
-class gene_pool():
+class gene_pool(genetic_material_store):
     """Store of transient genetic codes & associated data for a population.
 
     The gene_pool is responsible for:
@@ -128,6 +133,7 @@ class gene_pool():
         genomic_library (genomic_library): Source of genetic material.
         config(pypgtable config): The config is deep copied by pypgtable.
         """
+        super().__init__(node_label=_NL, left_edge_label=_LEL, right_edge_label=_REL)
         self.pool = {}
         self._gl = genomic_library
         self._pool = table(config)
@@ -284,6 +290,11 @@ class gene_pool():
                 children.append(gcb)
                 if _LOG_DEBUG: _logger.debug(f'Appended {gcb} to list to pull from the Genomic Library.')
         self.pull(children)
+        self.add_nodes((ggc for ggc in filter(_MODIFIED_FUNC, self.pool.values())))
+        #FIXME: Must correctly update higher layer fields & not wipe out this layer.
+        #TODO: Not sure if this is the right place to push. Might need to update
+        # locally on every change to maintain consistency but do not what to do a DB push everytime.
+        self.push()
 
     def pull(self, signatures):
         """Pull aGCs and all sub-GC's recursively from the genomic library to the gene pool.
@@ -297,8 +308,6 @@ class gene_pool():
         if _LOG_DEBUG: _logger.debug(f'Recursively pulling {signatures} into Gene Pool.')
         gcs = self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures})
         self.pool.update({gc['ref']: gc for gc in map(partial(gGC, modified=True), gcs)})
-        #FIXME: Must correctly update higher layer fields & not wipe out this layer.
-        self.push()
 
     def push(self):
         """Insert or update into locally modified gGC's into the persistent gene_pool."""
