@@ -6,14 +6,17 @@ from os.path import dirname, join
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
 from json import load
 from egp_genomic_library.genetic_material_store import genetic_material_store
-from egp_genomic_library.genomic_library import compress_json, decompress_json, UPDATE_STR, UPDATE_RETURNING_COLS, sha256_to_str, sql_functions, HIGHER_LAYER_COLS
+from egp_genomic_library.genomic_library import (compress_json, decompress_json, UPDATE_STR, UPDATE_RETURNING_COLS,
+    sha256_to_str, sql_functions, HIGHER_LAYER_COLS)
 from egp_physics.ep_type import vtype
 from egp_physics.gc_type import eGC, interface_definition, gGC, interface_hash
-from egp_physics.physics import stablise
+from egp_physics.physics import stablise, xGC_evolvability, pGC_fitness, select_pGC, xGC_inherit
 from egp_physics.gc_graph import gc_graph
+from .population import population
+
 
 from pypgtable import table
-from .gpm import create_callable
+from .gpm import create_callable, remove_callable
 
 
 _logger = getLogger(__name__)
@@ -31,6 +34,16 @@ _UPDATE_RETURNING_COLS = tuple((c for c in filter(lambda x: x != 'signature', UP
 _GENE_POOL_MODULE = 'gpm'
 _GPP_COLUMNS = ('idx', 'size', 'name', 'description', 'meta_data')
 
+
+# The physical GC population
+_PHYSICAL_ENVIRONMENT = {
+    'fitness': fitness,
+    'diversity': diversity,
+    'size': 0,
+    'inputs': ('gGC',),
+    'outputs': ('gGC',),
+    'vt': vtype.INSTANCE_STR
+}
 
 def compress_igraph(x):
     """Extract the internal representation and compress."""
@@ -118,9 +131,10 @@ class gene_pool(genetic_material_store):
     due to the heavy transaction load.
 
     The public member self.pool is the local cache of gGC's. It is a dictionary
-    mapping both 'ref' and 'signature' kets to gGC's.
+    mapping both 'ref' and 'signature' keys to gGC's.
     """
 
+    #TODO: Default genomic_library should be local host
     def __init__(self, genomic_library, config=_DEFAULT_CONFIG):
         """Connect to or create a gene pool.
 
@@ -137,11 +151,13 @@ class gene_pool(genetic_material_store):
         self.pool = {}
         self._gl = genomic_library
         self._pool = table(config)
+        self._env_config = None
         self._populations = self._populations_table(config)
         self._update_str = UPDATE_STR.replace('__table__', config['table'])
         self._interface = None
         self.encode_value = self._pool.encode_value
         self.select = self._pool.select
+        self.max_depth = 1
         if self._pool.raw.creator:
             self._pool.raw.arbitrary_sql(sql_functions(), read=False)
 
@@ -163,7 +179,10 @@ class gene_pool(genetic_material_store):
         _config['table'] = config['table'] + '_populations'
         _config['create_table'] = True
         _config['schema'] = _GPP_TABLE_SCHEMA
-        return table(_config)
+        tbl = table(_config)
+        if not len(tbl):
+            self._env_config = population(**_PHYSICAL_ENVIRONMENT, gp=self)
+        return tbl
 
     def upsert_population(self, config={}):
         """Update or insert a population into the gene pool.
@@ -318,26 +337,77 @@ class gene_pool(genetic_material_store):
             gc.update(updated_gc)
             for col in HIGHER_LAYER_COLS:
                 gc[col] = gc[col[1:]]
-        for gc in modified_gcs:
+            gc['modified']= False
+        self.define(modified_gcs)
+
+    def define(self, gcs):
+        """Define the executable object for each gc in gcs."""
+        for gc in gcs:
             if gc.get('exec', None) is None:
                 create_callable(gc)
-            gc['modified']= False
+
+    def undefine(self, gcs):
+        """Delete the executable object for each gc in gcs."""
+        for gc in gcs:
+            if gc.get('exec', None) is not None:
+                remove_callable(gc)
 
     def delete(self, refs):
         """Delete GCs from the gene pool.
+
+        If ref is not in the pool it is ignored.
+        If ref is aliased by a signature both the signature & ref entries are deleted.
 
         Args
         ----
         refs(iterable(int)): GC 'ref' values to delete.
         """
         #FIXME: This needs to recursively delete now unreferenced GC's
+        refs = tuple(filter(lambda x: x in self.pool, refs))
         for ref in refs:
-            if self.pool[ref].get('signature', None) is not None:
-                del self.pool[self.pool[ref]['signature']]
+            gc = self.pool[ref]
+            if gc.get('signature', None) is not None:
+                del self.pool[gc['signature']]
+            if gc.get('exec', None) is not None:
+                remove_callable(gc)
             del self.pool[ref]
         if refs:
-            self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': tuple(refs)})
+            self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': refs})
 
     def individuals(self, pop_idx):
-        """Return a generator of individuals."""
+        """Return a generator of individual gGCs."""
         return (gc for gc in filter(lambda x: x['population'] == pop_idx, self.pool.values()))
+
+    def evolve_target(self, pop_idx, fitness):
+        """Evolve the population and assess its fitness.
+
+        Evolutionary steps are:
+            1. Select a pGC to operate on the individual
+            2. Evolve the individual into an offspring
+            3. Assess the childs fitness
+            4. Update the individuals parameters
+            5. Update the parameters of the pGC
+            6. Update the parameters of the pGC's pGC recursively
+
+        Args
+        ----
+        pop_idx (int): The index of the target population to evolve
+        fitness (callable): The fitness function of the target population.
+
+        Returns
+        -------
+        ngen ([[eGC]]): The offsprings (evolved version) of the population & sub-GC's.
+        """
+        # pGC fitness updates happen en-masse after each layer has selected mutations.
+        selection = [(individual, select_pGC(self, individual, 0)) for individual in self.individuals(pop_idx)]
+        ngen = []
+        for individual, pgc in selection:
+            offspring = pgc.exec((individual,))
+            xGC_inherit(offspring[0], individual, pgc)
+            ngen.append(offspring)
+            self.define(offspring)
+            new_fitness = offspring[0]['fitness'][0] = fitness(offspring[0])
+            delta_fitness = new_fitness - individual['fitness'][0]
+            xGC_evolvability(individual, delta_fitness, 0)
+            pGC_fitness(self, pgc, delta_fitness)
+        return ngen

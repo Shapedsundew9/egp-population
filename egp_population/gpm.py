@@ -61,3 +61,8 @@ def create_callable(gc):
 
     exec(callable_string(gc), globals())
     gc['exec'] = globals()[name_func(gc['ref'])]
+
+def remove_callable(gc):
+    # TODO: This does not check to see if the imports can go too
+    gc['exec'] = None
+    del name_func(gc['ref'])

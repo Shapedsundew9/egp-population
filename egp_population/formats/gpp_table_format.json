@@ -6,6 +6,10 @@
     "size":  {
         "type": "INT"
     },
+    "depth":  {
+        "type": "INT",
+        "default": "0"
+    },
     "name": {
         "nullable": true,
         "type": "VARCHAR"

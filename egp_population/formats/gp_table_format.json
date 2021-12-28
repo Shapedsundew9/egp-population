@@ -90,6 +90,10 @@
     "graph": {
         "type": "BYTEA"
     },
+    "if": {
+        "default": "ARRAY[0.0]",
+        "type": "DOUBLE PRECISION[]"
+    },
     "igraph": {
         "nullable": true,
         "type": "BYTEA"
