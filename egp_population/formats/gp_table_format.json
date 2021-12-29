@@ -39,9 +39,13 @@
         "nullable": true,
         "type": "BIGINT"
     },
-    "ancestor_b_ref": {
+    "ancestor_x_refs": {
         "nullable": true,
-        "type": "BIGINT"
+        "type": "BIGINT[]"
+    },
+    "offspring_count": {
+        "default": 0,
+        "type": "INTEGER"
     },
     "code_depth": {
         "default": "0",
@@ -72,6 +76,10 @@
         "type": "BIGINT[]"
     },
     "fitness": {
+        "default": "ARRAY[0.0]",
+        "type": "DOUBLE PRECISION[]"
+    },
+    "delta_fitness": {
         "default": "ARRAY[0.0]",
         "type": "DOUBLE PRECISION[]"
     },

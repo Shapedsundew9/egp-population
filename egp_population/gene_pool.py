@@ -5,6 +5,9 @@ from functools import partial
 from os.path import dirname, join
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
 from json import load
+from numpy.core.fromnumeric import mean
+from numpy.random import choice
+from numpy import array, float32, sum, zeros
 from egp_genomic_library.genetic_material_store import genetic_material_store
 from egp_genomic_library.genomic_library import (compress_json, decompress_json, UPDATE_STR, UPDATE_RETURNING_COLS,
     sha256_to_str, sql_functions, HIGHER_LAYER_COLS)
@@ -12,7 +15,7 @@ from egp_physics.ep_type import vtype
 from egp_physics.gc_type import eGC, interface_definition, gGC, interface_hash
 from egp_physics.physics import stablise, xGC_evolvability, pGC_fitness, select_pGC, xGC_inherit
 from egp_physics.gc_graph import gc_graph
-from .population import population
+from time import time
 
 
 from pypgtable import table
@@ -76,6 +79,12 @@ with open(join(dirname(__file__), "formats/gp_table_format.json"), "r") as file_
     _GP_TABLE_SCHEMA = load(file_ptr)
 with open(join(dirname(__file__), "formats/gpp_table_format.json"), "r") as file_ptr:
     _GPP_TABLE_SCHEMA = load(file_ptr)
+with open(join(dirname(__file__), "formats/gp_metrics_format.json"), "r") as file_ptr:
+    _GP_METRICS_TABLE_SCHEMA = load(file_ptr)
+with open(join(dirname(__file__), "formats/layer_metrics_format.json"), "r") as file_ptr:
+    _LAYER_METRICS_TABLE_SCHEMA = load(file_ptr)
+with open(join(dirname(__file__), "formats/pgc_metrics_format.json"), "r") as file_ptr:
+    _PGC_METRICS_TABLE_SCHEMA = load(file_ptr)
 
 
 # GC queries
@@ -86,7 +95,7 @@ _INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs}={iidx} '
 
 
 # The gene pool default config
-_DEFAULT_CONFIG = {
+_DEFAULT_GP_CONFIG = {
     'database': {
         'dbname': 'erasmus'
     },
@@ -96,6 +105,39 @@ _DEFAULT_CONFIG = {
     'create_table': True,
     'create_db': True,
     'conversions': _GP_CONVERSIONS
+}
+_DEFAULT_GP_METRICS_CONFIG = {
+    'database': {
+        'dbname': 'erasmus'
+    },
+    'table': 'gp_metrics',
+    'schema': _GP_METRICS_TABLE_SCHEMA,
+    'create_table': True,
+    'create_db': True,
+}
+_DEFAULT_LAYER_METRICS_CONFIG = {
+    'database': {
+        'dbname': 'erasmus'
+    },
+    'table': 'layer_metrics',
+    'schema': _LAYER_METRICS_TABLE_SCHEMA,
+    'create_table': True,
+    'create_db': True,
+}
+_DEFAULT_PGC_METRICS_CONFIG = {
+    'database': {
+        'dbname': 'erasmus'
+    },
+    'table': 'pgc_metrics',
+    'schema': _PGC_METRICS_TABLE_SCHEMA,
+    'create_table': True,
+    'create_db': True,
+}
+_DEFAULT_CONFIGS = {
+    "gp": _DEFAULT_GP_CONFIG,
+    "gp_metrics": _DEFAULT_GP_METRICS_CONFIG,
+    "layer_metrics": _DEFAULT_LAYER_METRICS_CONFIG,
+    "pgc_metrics": _DEFAULT_PGC_METRICS_CONFIG,
 }
 
 
@@ -108,7 +150,7 @@ def default_config():
     -------
     (dict): The default genomic_library() configuration.
     """
-    return deepcopy(_DEFAULT_CONFIG)
+    return deepcopy(_DEFAULT_CONFIGS)
 
 
 class gene_pool(genetic_material_store):
@@ -135,7 +177,7 @@ class gene_pool(genetic_material_store):
     """
 
     #TODO: Default genomic_library should be local host
-    def __init__(self, genomic_library, config=_DEFAULT_CONFIG):
+    def __init__(self, genomic_library, configs=_DEFAULT_CONFIGS):
         """Connect to or create a gene pool.
 
         The gene pool data persists in a postgresql database. Multiple
@@ -150,14 +192,16 @@ class gene_pool(genetic_material_store):
         super().__init__(node_label=_NL, left_edge_label=_LEL, right_edge_label=_REL)
         self.pool = {}
         self._gl = genomic_library
-        self._pool = table(config)
+        self._pool = table(configs['gp'])
+        self._metrics = {c: table(configs[c]) for c in configs.keys() if 'metrics' in c}
         self._env_config = None
-        self._populations = self._populations_table(config)
-        self._update_str = UPDATE_STR.replace('__table__', config['table'])
+        self._populations = self._populations_table(configs['gp'])
+        self._update_str = UPDATE_STR.replace('__table__', configs['gp']['table'])
         self._interface = None
         self.encode_value = self._pool.encode_value
         self.select = self._pool.select
         self.max_depth = 1
+        self.layer_evolutions = [0]
         if self._pool.raw.creator:
             self._pool.raw.arbitrary_sql(sql_functions(), read=False)
 
@@ -180,8 +224,6 @@ class gene_pool(genetic_material_store):
         _config['create_table'] = True
         _config['schema'] = _GPP_TABLE_SCHEMA
         tbl = table(_config)
-        if not len(tbl):
-            self._env_config = population(**_PHYSICAL_ENVIRONMENT, gp=self)
         return tbl
 
     def upsert_population(self, config={}):
@@ -374,9 +416,29 @@ class gene_pool(genetic_material_store):
         if refs:
             self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': refs})
 
-    def individuals(self, pop_idx):
+    def individuals(self, pop_idx=0):
         """Return a generator of individual gGCs."""
         return (gc for gc in filter(lambda x: x['population'] == pop_idx, self.pool.values()))
+
+    def cull_target(self, pop_idx=0):
+        """Reduce the target population to the population size.
+
+        Algorithm (in order):
+            1. Keep the top _FITTEST_FRACTION fittest
+            2. Keep the top _EVO_FRACTION most evolvable
+            3. Keep the top _DIVERSITY_FRACTION most diverse* fitness scores
+            4. Keep the top _UNIQUE_FRACTION most diverse structures
+            5. Randomly select from the rest weighted by fitness.
+
+        *_FRACTION is of the population size (truncated if a fraction of an individual)
+        1-4 may be overlapping sets.
+        """
+        # TODO: Implement elitist functions
+        population = tuple(self.individuals(pop_idx))
+        weights = array([1.0 - i['fitness'][0] for i in population], float32)
+        weights /= sum(weights)
+        marked = len(population) - self.config['size']
+        self.delete([individual['ref'] for individual in choice(population, (marked,), False, weights)] if marked else [])
 
     def evolve_target(self, pop_idx, fitness):
         """Evolve the population and assess its fitness.
@@ -399,6 +461,7 @@ class gene_pool(genetic_material_store):
         ngen ([[eGC]]): The offsprings (evolved version) of the population & sub-GC's.
         """
         # pGC fitness updates happen en-masse after each layer has selected mutations.
+        start = time()
         selection = [(individual, select_pGC(self, individual, 0)) for individual in self.individuals(pop_idx)]
         ngen = []
         for individual, pgc in selection:
@@ -410,4 +473,85 @@ class gene_pool(genetic_material_store):
             delta_fitness = new_fitness - individual['fitness'][0]
             xGC_evolvability(individual, delta_fitness, 0)
             pGC_fitness(self, pgc, delta_fitness)
+        self.layer_evolutions[0] = len(selection)
+        self.cull_target()
+        self.push()
+        # Pull Individuals that have been created by other workers
+        # Cull again
+        self.metrics(time()-start)
         return ngen
+
+    def metrics(self):
+        """calaculate and record metrics."""
+        self.layer_metrics()
+        self.pgc_metrics()
+        self.gp_metrics()
+        self.layer_evolutions = [0] * self.max_depth
+
+    def layer_metrics(self, duration):
+        """Per layer metrics."""
+        for evolutions, layer in filter(lambda x: x[0], enumerate(self.layer_evolutions)):
+            fitness = []
+            evolvability = []
+            generation = []
+            gc_count = []
+            c_count = []
+            filter_func = lambda x:len(x['f_count']) > layer and x['f_count']
+            for individual in filter(filter_func, self.pool.values()):
+                 fitness.append(individual['fitness'][layer])
+                 evolvability.append(individual['evolvability'][layer])
+                 generation.append(individual['generation'][layer])
+                 gc_count.append(individual['gc_count'])
+                 c_count.append(individual['c_count'])
+            self._metrics['layer_metrics'].insert({
+                'layer': layer,
+                'f_max': max(fitness),
+                'f_mean': mean(fitness),
+                'f_min': min(fitness),
+                'e_max': max(evolvability),
+                'e_mean': mean(evolvability),
+                'e_min': min(evolvability),
+                'g_max': max(generation),
+                'g_mean': mean(generation),
+                'g_min': min(generation),
+                'gcc_max': max(gc_count),
+                'gcc_mean': mean(gc_count),
+                'gcc_min': min(gc_count),
+                'cc_max': max(c_count),
+                'cc_mean': mean(c_count),
+                'cc_min': min(c_count),
+                'eps': evolutions / duration,
+                'tag': 0,
+                'worker_id': 0})
+
+    def pgc_metrics(self, duration):
+        """Per pGC layer metrics."""
+        for evolutions, layer in filter(lambda x: x[0], enumerate(self.layer_evolutions)):
+            ne = []
+            filter_func = lambda x:len(x['f_count']) > layer and x['f_count']
+            for individual in filter(filter_func, self.pool.values()):
+                 fitness.append(individual['fitness'][layer])
+                 evolvability.append(individual['evolvability'][layer])
+                 generation.append(individual['generation'][layer])
+                 gc_count.append(individual['gc_count'])
+                 c_count.append(individual['c_count'])
+            self._metrics['layer_metrics'].insert({
+                'layer': layer,
+                'f_max': max(fitness),
+                'f_mean': mean(fitness),
+                'f_min': min(fitness),
+                'e_max': max(evolvability),
+                'e_mean': mean(evolvability),
+                'e_min': min(evolvability),
+                'g_max': max(generation),
+                'g_mean': mean(generation),
+                'g_min': min(generation),
+                'gcc_max': max(gc_count),
+                'gcc_mean': mean(gc_count),
+                'gcc_min': min(gc_count),
+                'cc_max': max(c_count),
+                'cc_mean': mean(c_count),
+                'cc_min': min(c_count),
+                'eps': evolutions / duration,
+                'tag': 0,
+                'worker_id': 0})
