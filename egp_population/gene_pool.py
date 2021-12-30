@@ -4,18 +4,19 @@ from copy import deepcopy
 from functools import partial
 from os.path import dirname, join
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
-from json import load
+from json import load, loads, dumps
+from random import random
 from numpy.core.fromnumeric import mean
 from numpy.random import choice
 from numpy import array, float32, sum, zeros
 from egp_genomic_library.genetic_material_store import genetic_material_store
 from egp_genomic_library.genomic_library import (compress_json, decompress_json, UPDATE_STR, UPDATE_RETURNING_COLS,
     sha256_to_str, sql_functions, HIGHER_LAYER_COLS)
-from egp_physics.ep_type import vtype
+from egp_physics.ep_type import asstr, vtype
 from egp_physics.gc_type import eGC, interface_definition, gGC, interface_hash
-from egp_physics.physics import stablise, xGC_evolvability, pGC_fitness, select_pGC, xGC_inherit
+from egp_physics.physics import stablise, xGC_evolvability, pGC_fitness, select_pGC, xGC_inherit, random_reference
 from egp_physics.gc_graph import gc_graph
-from time import time
+from time import time, sleep
 
 
 from pypgtable import table
@@ -36,6 +37,7 @@ _SIG_NOT_NULL_FUNC = lambda x: x['signature'] is not None
 _UPDATE_RETURNING_COLS = tuple((c for c in filter(lambda x: x != 'signature', UPDATE_RETURNING_COLS))) + ('ref',)
 _GENE_POOL_MODULE = 'gpm'
 _GPP_COLUMNS = ('idx', 'size', 'name', 'description', 'meta_data')
+_POPULATION_IN_DEFINITION = -1
 
 
 # The physical GC population
@@ -190,22 +192,50 @@ class gene_pool(genetic_material_store):
         config(pypgtable config): The config is deep copied by pypgtable.
         """
         super().__init__(node_label=_NL, left_edge_label=_LEL, right_edge_label=_REL)
+
+        # pool is a dictionary of ref:gGC and signature:gGC
+        # All gGC's in pool must be valid & any modified are sync'd to the gene pool table
+        # in the database at the end of the target epoch.
         self.pool = {}
         self._gl = genomic_library
         self._pool = table(configs['gp'])
+
+        # UID for this worker
+        self.worker_id = random_reference()
+
+        # FIXME: Validators for all tables.
+
+        # A dictionary of metric tables. Metric tables are undated at the end of the
+        # taregt epoch.
         self._metrics = {c: table(configs[c]) for c in configs.keys() if 'metrics' in c}
+
+        # ?
         self._env_config = None
-        self._populations = self._populations_table(configs['gp'])
+        self._populations_table = self._create_populations_table(configs['gp'])
+
+        # Modify the update strings to use the right table for the gene pool.
         self._update_str = UPDATE_STR.replace('__table__', configs['gp']['table'])
+
+        #?
         self._interface = None
         self.encode_value = self._pool.encode_value
         self.select = self._pool.select
-        self.max_depth = 1
+
+        # The number of layers in the gene pool
+        # Layer 0 is the tsrget layer
+        # Layers 1 to N are pGC layers
+        self.num_layers = 0
+
+        # Used to track the number of updates to individuals in a layer (?)
         self.layer_evolutions = [0]
+
+        # If this instance created the gene pool then it is responsible for configuring
+        # setting up database functions and initial population.
         if self._pool.raw.creator:
             self._pool.raw.arbitrary_sql(sql_functions(), read=False)
 
-    def _populations_table(self, config):
+
+    def _create_populations_table(self, config):
         """Create a table to store population information.
 
         The populations table has all the same DB details as the gene
@@ -224,34 +254,73 @@ class gene_pool(genetic_material_store):
         _config['create_table'] = True
         _config['schema'] = _GPP_TABLE_SCHEMA
         tbl = table(_config)
+        tbl.register_conversion('inputs', dumps, loads)
+        tbl.register_conversion('outputs', dumps, loads)
         return tbl
 
-    def upsert_population(self, config={}):
-        """Update or insert a population into the gene pool.
+    def populations(self):
+        """Return the definition of all populations."""
+        return self._populations_table.select()
+
+    def create_population(self, config={}):
+        """Create a population in the gene pool.
+
+        The gene pool can support multiple populations.
+        Once a population is created it cannot be modified.
+
+        The population entry is initially created with a size of _POPULATION_IN_DEFINITION.
+        This indicates the population is being created in the gene pool. Once complete the size
+        is updated to the configured size.
+
+        If the population entry already exists it will either be defined (gene pool populated)
+        and the size entry will be set to something other than _POPULATION_IN_DEFINITION or
+        it will be in definition in which case the method waits indefinately checking every
+        1.0s (on average) until size changes from _POPULATION_IN_DEFINITION.
 
         Args
         ----
-        idx (int): If exists the population data to update else a new population with the next index is created.
-        size (int): Defines the population size. A value of <=0 deletes all the populations GC's.
-        name (str): An arbitary string giving a short name for the population.
-        description (str): An arbitary string with a longer description of the population.
-        meta_data (str): Additional data about the population stored as a string.
+        config (dict): (required)
+            'size':(int): Defines the population size.
+            'name':(str): An unique short (<= 64 charaters) string giving a name.
+            'inputs':iter(vtype): Target individual input definition using vt type.
+            'outputs':iter(vtype): Target individual output definition using vt type.
+            'vt':(vtype): A vtype value defining how to interpret inputs & outputs.
+            'description':(str): An arbitary string with a longer (<= 8192 characters) description.
+            'meta_data':(str): Additional data about the population stored as a string (unlimited length).
+
+        Returns
+        -------
+        data (dict):
+            'idx':(int): A unique id given to the population.
+            'worker_id:(int): The id of the worker that created the initial population.
+            'size':(int): Defines the population size.
+            'name':(str): An unique short (<= 64 charaters) string giving a name.
+            'inputs':list(str): Target individual input definition as strings.
+            'outputs':list(str): Target individual output definition as strings.
+            'vt':(vtype): vtype.EP_TYPE_STR.
+            'description':(str): An arbitary string with a longer (<= 8192 characters) description.
+            'meta_data':(str): Additional data about the population stored as a string (unlimited length).
+            'created':(datetime): The time at which the population entry was created.
         """
-        data = {k: v for k, v in filter(lambda x:x[0] in _GPP_TABLE_SCHEMA, config.items())}
-        if config.get('idx', None) is None:
-            idx = next(self._populations.insert((data,), ('idx',)))['idx']
-            size = data['size']
+        data = deepcopy(config)
+        data['inputs'] = [asstr(i, config['vt']) for i in config['inputs']]
+        data['outputs'] = [asstr(o, config['vt']) for o in config['outputs']]
+        data['size'] = _POPULATION_IN_DEFINITION
+        data['worker_id'] = self.worker_id
+        data['vt'] = vtype.EP_TYPE_STR
+        data = next(self._populations_table.insert((data,), '*'))
+
+        # If this worker created the entry then populate the gene pool.
+        if data['worker_id'] == self.worker_id:
+            self.populate(data['inputs'], data['outputs'], data['idx'], num=config['size'], vt=data['vt'])
+            data['size'] = config['size']
+            self._populations_table.update("{size} = {s}", "{idx} = {i}", {'s': data['size'], 'i': data['idx']})
         else:
-            literals = {'_' + k: v for k, v in data.items()}
-            update_str = ', '.join((f"{{{c}}}={{{l}}}" for c, l in zip(data.keys(), literals.keys())))
-            retval = next(self._populations.update(update_str, '{idx}={_idx}', literals, ('idx', 'EXCLUDED.size')))
-            if not retval:
-                raise ValueError(f"Index {data['idx']} not found in populations table: Cannot update population definition.")
-            idx = retval['idx']
-            size = data['size'] - retval['size']
-        self.populate(config['inputs'], config['outputs'], idx, num=size, vt=config['vt'])
-        config['idx'] = idx
-        return config
+            while data['size'] == _POPULATION_IN_DEFINITION:
+                _logger.info(f"Waiting for population {data['name']} to be created by worker {data['worker_id']}.")
+                sleep(0.5 + random())
+                data = next(self._populations_table.select('{name} = {n}', {'n': data['name']}))
+        return data
 
     def populate(self, inputs, outputs, pop_idx, exclusions=[], num=1, vt=vtype.OBJECT):
         """Fetch or create num valid GC's with the specified inputs & outputs.
@@ -482,7 +551,7 @@ class gene_pool(genetic_material_store):
         return ngen
 
     def metrics(self):
-        """calaculate and record metrics."""
+        """Calculate and record metrics."""
         self.layer_metrics()
         self.pgc_metrics()
         self.gp_metrics()

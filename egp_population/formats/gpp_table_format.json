@@ -1,25 +1,43 @@
 {
     "idx": {
         "type": "SERIAL",
-        "primary_key": true
+        "description": "Integer ID of the population."
+    },
+    "worker_id": {
+        "type": "BIGINT",
+        "description": "The ID of the worker that created the population."
     },
     "size":  {
-        "type": "INT"
-    },
-    "depth":  {
         "type": "INT",
-        "default": "0"
+        "description": "Number of individuals in the target layer with the idx defined in this row."
+    },
+    "inputs": {
+        "type": "VARCHAR",
+        "description": "JSON list of valid EP_TYPE_STRs defining the target individuals inputs."
+    },
+    "outputs": {
+        "type": "VARCHAR",
+        "description": "JSON list of valid EP_TYPE_STRs defining the target individuals outputs."
     },
     "name": {
         "nullable": true,
-        "type": "VARCHAR"
+        "primary_key": true,
+        "type": "VARCHAR[64]",
+        "description": "User defined arbitrary short name used as a unique identifier."
     },
     "description": {
         "nullable": true,
-        "type": "VARCHAR"
+        "type": "VARCHAR[8192]",
+        "description": "User defined arbitrary long description."
     },
     "meta_data": {
         "nullable": true,
-        "type": "VARCHAR"
+        "type": "VARCHAR",
+        "description": "User defined arbitary field."
+    },
+    "created": {
+        "default": "NOW()",
+        "type": "TIMESTAMP",
+        "description": "The time at which the population entry was created."
     }
 }
