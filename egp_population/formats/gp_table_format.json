@@ -151,8 +151,10 @@
         "type": "BIGINT"
     },
     "population": {
-        "nullable": true,
-        "type": "SMALLINT"
+        "default": "0",
+        "type": "SMALLINT",
+        "description": "Is a member of a target population if > 0."
+
     },
     "properties": {
         "default": "0",

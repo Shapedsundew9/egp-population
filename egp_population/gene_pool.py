@@ -38,17 +38,8 @@ _UPDATE_RETURNING_COLS = tuple((c for c in filter(lambda x: x != 'signature', UP
 _GENE_POOL_MODULE = 'gpm'
 _GPP_COLUMNS = ('idx', 'size', 'name', 'description', 'meta_data')
 _POPULATION_IN_DEFINITION = -1
+_MAX_INITIAL_LIST = 10000
 
-
-# The physical GC population
-_PHYSICAL_ENVIRONMENT = {
-    'fitness': fitness,
-    'diversity': diversity,
-    'size': 0,
-    'inputs': ('gGC',),
-    'outputs': ('gGC',),
-    'vt': vtype.INSTANCE_STR
-}
 
 def compress_igraph(x):
     """Extract the internal representation and compress."""
@@ -90,6 +81,8 @@ with open(join(dirname(__file__), "formats/pgc_metrics_format.json"), "r") as fi
 
 
 # GC queries
+_INITIAL_GP_COLUMNS = ('ref', 'evolvability', 'signature')
+_INITIAL_GL_COLUMNS = ('signature', 'evolvability')
 _SIGNATURE_SQL = 'WHERE ({signature} = ANY({matches}))'
 _INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs}={iidx} '
                       'AND {output_types} = {otypes} AND {outputs}={oidx} '
@@ -211,7 +204,9 @@ class gene_pool(genetic_material_store):
 
         # ?
         self._env_config = None
+        self._population_data = {}
         self._populations_table = self._create_populations_table(configs['gp'])
+        self.populations()
 
         # Modify the update strings to use the right table for the gene pool.
         self._update_str = UPDATE_STR.replace('__table__', configs['gp']['table'])
@@ -259,8 +254,13 @@ class gene_pool(genetic_material_store):
         return tbl
 
     def populations(self):
-        """Return the definition of all populations."""
-        return self._populations_table.select()
+        """Return the definition of all populations.
+
+        The gene pool object stores a local copy of the population data with
+        fitness & diversity functions defined (in 0 to all) cases.
+        """
+        self._population_data.update({p['idx']: p for p in self._populations_table.select()})
+        return {p['name']: p for p in self._population_data}
 
     def create_population(self, config={}):
         """Create a population in the gene pool.
@@ -284,6 +284,12 @@ class gene_pool(genetic_material_store):
             'name':(str): An unique short (<= 64 charaters) string giving a name.
             'inputs':iter(vtype): Target individual input definition using vt type.
             'outputs':iter(vtype): Target individual output definition using vt type.
+            'fitness':callable(func): The fitness function of the individuals in the population.
+                The callable must take a single parameter that is the executable function of
+                a given individual 'func'. func takes a single tuple of objects as
+                defined in 'inputs' and returns a tuple containing object types defined in 'outputs'.
+                The callable returns a single floating point 'fitness' where 0.0 <= fitness <= 1.0.
+            'diversity':callable(tuple(float)): FIXME: How does diversity work?
             'vt':(vtype): A vtype value defining how to interpret inputs & outputs.
             'description':(str): An arbitary string with a longer (<= 8192 characters) description.
             'meta_data':(str): Additional data about the population stored as a string (unlimited length).
@@ -297,6 +303,8 @@ class gene_pool(genetic_material_store):
             'name':(str): An unique short (<= 64 charaters) string giving a name.
             'inputs':list(str): Target individual input definition as strings.
             'outputs':list(str): Target individual output definition as strings.
+            'fitness':callable(func): The fitness function of the individuals in the population.
+            'diversity':callable(tuple(float)): FIXME: How does diversity work?
             'vt':(vtype): vtype.EP_TYPE_STR.
             'description':(str): An arbitary string with a longer (<= 8192 characters) description.
             'meta_data':(str): Additional data about the population stored as a string (unlimited length).
@@ -312,7 +320,8 @@ class gene_pool(genetic_material_store):
 
         # If this worker created the entry then populate the gene pool.
         if data['worker_id'] == self.worker_id:
-            self.populate(data['inputs'], data['outputs'], data['idx'], num=config['size'], vt=data['vt'])
+            _logger.info(f"Creating new population: {data['name']}.")
+            self._populate(data['inputs'], data['outputs'], data['idx'], num=config['size'], vt=data['vt'])
             data['size'] = config['size']
             self._populations_table.update("{size} = {s}", "{idx} = {i}", {'s': data['size'], 'i': data['idx']})
         else:
@@ -322,82 +331,92 @@ class gene_pool(genetic_material_store):
                 data = next(self._populations_table.select('{name} = {n}', {'n': data['name']}))
         return data
 
-    def populate(self, inputs, outputs, pop_idx, exclusions=[], num=1, vt=vtype.OBJECT):
-        """Fetch or create num valid GC's with the specified inputs & outputs.
+    def _populate(self, inputs, outputs, pop_idx, exclusions=[], num=1, vt=vtype.OBJECT):
+        """Fetch or create num target GC's & recursively pull in the pGC's that made them.
 
-        The construct a population with inputs and outputs as defined by inputs, outputs & vt.
+        Construct a population with inputs and outputs as defined by inputs, outputs & vt.
+        Inputs & outputs define the GC's interface.
 
-        GC's matching the criteria in the gene pool will be given preference over
-        creating new GC's. If there are more GC's in the GMS that meet the
-        criteria than num then the returned GC's will be randomly selected.
-        If there are less then valid GC's with the correct inputs and outputs
-        will be created randomly using the GMS.
-
-        If the input & output specification is such that no valid GC can be found
-        or created None is returned.
+        Selection of the population:
+            1. Find all GC's with the target interface in the GP & GL (to _MAX_INITIAL_LIST each)
+            2. Find the maximum evolvability of each GC i.e. max at any layer.
+            3. If > 2*num GC's in total: Randomly select num GC's weighted by max evolvability (no duplicates).
+            4. If < num GC's in total: Add num - total randomly generated GC's.
+            5. Calculate the fitness of target GC's.
+            6. Cull to population size.
 
         Args
         ----
         inputs (iterable(object or type)): Input objects of vt type.
         outputs (iteratble(object or type)): Output objects of vt type.
         pop_idx (int): The population index to use for the new individuals.
-        num (int): The number of GC's to create (or delete if -ve)
+        exclusions (iter(sha256)): GC signatures to exclude.
+        num (int): The number of GC's to create
         vt (vtype): See vtype definition.
-
-        Returns
-        -------
-        population index (int) or None.
         """
         # Check the population index exists
-        literals = {'pop_idx': pop_idx}
-        result = next(self._populations.select('WHERE {idx} = {pop_idx}', literals))
-        if not len(result):
-            raise ValueError(f"Population index {pop_idx} was not found.")
-        count = len(tuple(self._pool.raw.select('WHERE {population} = {pop_idx}', literals, columns=('population',))))
-        num = result['size'] - count
-        verb, tf = ('Adding', 'to') if num > 0 else ('Deleting', 'from')
-        _logger.info(f"{verb} {abs(num)} GC's {tf} population index: {pop_idx}, name: {result['name']}")
+        _logger.info(f"Adding {num} GC's to population index: {pop_idx}.")
 
         # Create search criteria for the genomic library
         xputs = {
             'exclude_column': 'signature',
             'exclusions': exclusions,
-            'limit': num
+            'limit': _MAX_INITIAL_LIST
         }
         input_eps, xputs['itypes'], xputs['iidx'] = interface_definition(inputs, vt)
         output_eps, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vt)
         self._interface = interface_hash(input_eps, output_eps)
 
-        # Adding to the gene pool
-        if num > 0:
-            # Find the GC's that match and then recursively pull them from the genomic library
-            matches = list(m[0] for m in self._gl.library.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',)))
-            _logger.info(f'Found {len(matches)} GCs matching input and output criteria.')
-            if _LOG_INFO and matches:
-                _logger.debug(f'GC signatures: {[sha256_to_str(m) for m in matches]}.')
-            self.pull(matches)
-            for gc in filter(lambda x: x['signature'] in matches, self.pool.values()):
-                gc['modified'] = True
-                gc['population'] = pop_idx
+        # Find the GC's that match in the GP & GL
+        matches = list(self._pool.raw.select(_INITIAL_GC_SQL, xputs, _INITIAL_GP_COLUMNS))
+        gp_num = len(matches)
+        _logger.info(f'Found {gp_num} GCs matching input and output criteria in the gene pool.')
+        matches.extend(self._gl.library.raw.select(_INITIAL_GC_SQL, xputs, _INITIAL_GL_COLUMNS))
+        _logger.info(f'Found {len(matches) - gp_num} GCs matching input and output criteria in the genomic library.')
 
-            # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
-            # This may require pulling new agc's from the genomic library through steady state exceptions
-            # in the stabilise() in which case we need to pull in all dependents not already in the
-            # gene pool.
-            ggcs = []
-            _logger.info(f'{num - len(matches)} GGCs to create.')
-            for _ in range(num - len(matches)):
-                rgc, fgc_dict = stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
-                ggcs.append(gGC(rgc, interface=self._interface, modified=True, population=pop_idx))
-                ggcs.extend((gGC(gc, modified=True) for gc in fgc_dict.values()))
-            _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
-            self.add(ggcs)
+        selected = [match[0] for match in matches]
+        if len(matches) > 2*num:
+            weights = array([max(match[1] for match in matches)], float32)
+            weights /= sum(weights)
+            selected = choice(selected, 2*num, False, weights)
 
-        # Removing from the gene pool
-        elif num < 0:
-            xputs['limit'] = -num
-            matches = list(m[0] for m in self._pool.raw.select(_INITIAL_GC_SQL, literals=xputs, columns=('signature',)))
-            self.delete(matches)
+        # For those selected from the GP mark them as individuals of this population
+        # If they are already part of a population make a copy and give it a new reference.
+        for uid in filter(lambda x: isinstance(x, int), selected):
+            if self.pool[uid]['population']:
+                clone = deepcopy(self.pool[uid])
+                uid = random_reference()
+                self.pool[uid] = clone
+            clone['population'] = pop_idx
+
+        # For those from the genomic library pull them in and mark them as modified (new)
+        # to the gene pool.
+        from_gl = [uid for uid in filter(lambda x: not isinstance(x, int), selected)]
+        self.pull(from_gl)
+        for signature in from_gl:
+            self.pool[signature]['modified'] = True
+            self.pool[signature]['population'] = pop_idx
+
+        # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
+        # This may require pulling new agc's from the genomic library through steady state exceptions
+        # in the stabilise() in which case we need to pull in all dependents not already in the
+        # gene pool.
+        ggcs = []
+        _logger.info(f'{num - len(matches)} GGCs to create.')
+        for _ in range(num - len(matches)):
+            rgc, fgc_dict = stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
+            ggcs.append(gGC(rgc, interface=self._interface, modified=True, population=pop_idx))
+            ggcs.extend((gGC(gc, modified=True) for gc in fgc_dict.values()))
+        _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
+        self.add(ggcs)
+
+        # Make an initial assessment of fitness
+        for individual in self.individuals(pop_idx):
+            individual['fitness'][0] = self._population_data[pop_idx]['fitness'](individual)
+            individual['f_count'][0] = 1
+
+        # Purge any overstock
+        self.cull_target(pop_idx)
 
     def add(self, ggcs):
         """Add gGGs to the gene pool pulling any sub-GC's from the genomic library as needed.
@@ -485,9 +504,22 @@ class gene_pool(genetic_material_store):
         if refs:
             self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': refs})
 
-    def individuals(self, pop_idx=0):
-        """Return a generator of individual gGCs."""
-        return (gc for gc in filter(lambda x: x['population'] == pop_idx, self.pool.values()))
+    def individuals(self, identifier=0):
+        """Return a generator of individual gGCs for a population.
+
+        The population is identified by identifier.
+
+        Args
+        ----
+        identifier (str or int): Either the population name or index.
+
+        Returns
+        -------
+        generator(gGC) of individuals in the population.
+        """
+        if isinstance(identifier, str):
+            identifier = [p for p in self._population_data if p['name'] == identifier][0]['idx']
+        return (gc for gc in filter(lambda x: x['population'] == identifier, self.pool.values()))
 
     def cull_target(self, pop_idx=0):
         """Reduce the target population to the population size.
