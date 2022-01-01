@@ -428,6 +428,7 @@ class gene_pool(genetic_material_store):
             ggcs.extend((gGC(gc, modified=True) for gc in fgc_dict.values()))
         _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
         self.add_to_gp(ggcs)
+        self.push_to_gp()
 
         # Make an initial assessment of fitness
         for individual in self.individuals(pop_idx):
@@ -483,9 +484,6 @@ class gene_pool(genetic_material_store):
         self.pull_from_gl(children)
         self.add_nodes((ggc for ggc in filter(_MODIFIED_FUNC, self.pool.values())))
         #FIXME: Must correctly update higher layer fields & not wipe out this layer.
-        #TODO: Not sure if this is the right place to push. Might need to update
-        # locally on every change to maintain consistency but do not what to do a DB push everytime.
-        self.push_to_gp()
 
     def pull_from_gl(self, signatures):
         """Pull aGCs and all sub-GC's recursively from the genomic library to the gene pool.
@@ -544,6 +542,7 @@ class gene_pool(genetic_material_store):
                 remove_callable(gc)
             del self.pool[ref]
         if refs:
+            # FIXME: How does this work if another worker is using the GC?
             self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': refs})
 
     def individuals(self, identifier=0):
