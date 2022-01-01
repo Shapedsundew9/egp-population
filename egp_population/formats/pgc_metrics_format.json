@@ -1,0 +1,39 @@
+{
+    "layer": {
+        "type": "INT",
+        "description": "The layer for which this row is relevant."
+    },
+    "ne_max": {
+        "type": "BIGINT",
+        "description": "The maximum number of evolutions of the next lower layer by a pGC in this layer."
+    },
+    "ne_mean": {
+        "type": "REAL",
+        "description": "The mean number of evolutions of the next lower layer by a pGC in this layer."
+    },
+    "ne_min": {
+        "type": "BIGINT",
+        "description": "The minimum number of evolutions of the next lower layer by a pGC in this layer."
+    },
+    "performance": {
+        "type": "REAL",
+        "description": "The performance of this layer. See docs for definition of performance."
+    },
+    "size": {
+        "type": "INT",
+        "description": "The number of individuals in the layer."
+    },
+    "tag": {
+        "type": "INT2",
+        "description": "An arbitary tag grouping rows."
+    },
+    "worker_id": {
+        "type": "BIGINT",
+        "description": "The ID of the worker writing this row."
+    },
+    "created": {
+        "default": "NOW()",
+        "type": "TIMESTAMP",
+        "description": "The time at which the layer statistics were calculated. This is the end of the target layer epoch."
+    }
+}
