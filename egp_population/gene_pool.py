@@ -12,9 +12,9 @@ from numpy import array, float32, sum, zeros
 from egp_genomic_library.genetic_material_store import genetic_material_store
 from egp_genomic_library.genomic_library import (compress_json, decompress_json, UPDATE_STR, UPDATE_RETURNING_COLS,
     sha256_to_str, sql_functions, HIGHER_LAYER_COLS)
-from egp_physics.ep_type import asstr, vtype
+from egp_physics.ep_type import asstr, vtype, asint
 from egp_physics.gc_type import eGC, interface_definition, gGC, interface_hash
-from egp_physics.physics import stablise, xGC_evolvability, pGC_fitness, select_pGC, xGC_inherit, random_reference
+from egp_physics.physics import cull_physical, stablise, xGC_evolvability, pGC_fitness, select_pGC, xGC_inherit, random_reference, RANDOM_PGC_SIGNATURE
 from egp_physics.gc_graph import gc_graph
 from time import time, sleep
 
@@ -33,12 +33,10 @@ _LOG_FATAL = _logger.isEnabledFor(FATAL)
 
 
 _MODIFIED_FUNC = lambda x: x['modified']
-_SIG_NOT_NULL_FUNC = lambda x: x['signature'] is not None
 _UPDATE_RETURNING_COLS = tuple((c for c in filter(lambda x: x != 'signature', UPDATE_RETURNING_COLS))) + ('ref',)
-_GENE_POOL_MODULE = 'gpm'
-_GPP_COLUMNS = ('idx', 'size', 'name', 'description', 'meta_data')
 _POPULATION_IN_DEFINITION = -1
 _MAX_INITIAL_LIST = 10000
+_MIN_PGC_LAYER_SIZE = 100
 
 
 def compress_igraph(x):
@@ -87,6 +85,16 @@ _SIGNATURE_SQL = 'WHERE ({signature} = ANY({matches}))'
 _INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs}={iidx} '
                       'AND {output_types} = {otypes} AND {outputs}={oidx} '
                       'AND NOT({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT {limit}')
+_PGC_DEFINITION = {
+    'itypes': [asint('egp_physics.gc_type_gGC')],
+    'otypes': [asint('egp_physics.gc_type_gGC')],
+    'iidx': b'0',
+    'oidx': b'0',
+    'exclude_column': 'signature',
+    'exclusions': [RANDOM_PGC_SIGNATURE],
+    'limit': _MAX_INITIAL_LIST
+}
+_COMPETITION_SQL = 'WHERE {population} = {popidx} and {ref} not in {exclusions}'
 
 
 # The gene pool default config
@@ -220,6 +228,7 @@ class gene_pool(genetic_material_store):
         # Layer 0 is the tsrget layer
         # Layers 1 to N are pGC layers
         self.num_layers = 0
+        self.pgc_layer_size = _MIN_PGC_LAYER_SIZE
 
         # Used to track the number of updates to individuals in a layer (?)
         self.layer_evolutions = [0]
@@ -337,13 +346,21 @@ class gene_pool(genetic_material_store):
         Construct a population with inputs and outputs as defined by inputs, outputs & vt.
         Inputs & outputs define the GC's interface.
 
-        Selection of the population:
+        Selection of the target population:
             1. Find all GC's with the target interface in the GP & GL (to _MAX_INITIAL_LIST each)
             2. Find the maximum evolvability of each GC i.e. max at any layer.
             3. If > 2*num GC's in total: Randomly select num GC's weighted by max evolvability (no duplicates).
             4. If < num GC's in total: Add num - total randomly generated GC's.
             5. Calculate the fitness of target GC's.
             6. Cull to population size.
+
+        Selection of pGC's
+            1. Set the pGC layer size to the maximum population size (of all populations) or
+               _MIN_PGC_LAYER_SIZE  whichever is greater.
+            2. If there are no pGCs in the GP
+                a. Add the random pGC from the GL (this defines the initial self.num_layers)
+                b. Randomly select (weighted by fitness in layer) layer size - 1 pGC's.
+                   If there are <= layer size - 1 candidates all are added.
 
         Args
         ----
@@ -392,10 +409,12 @@ class gene_pool(genetic_material_store):
         # For those from the genomic library pull them in and mark them as modified (new)
         # to the gene pool.
         from_gl = [uid for uid in filter(lambda x: not isinstance(x, int), selected)]
-        self.pull(from_gl)
+        self.pull_from_gl(from_gl)
         for signature in from_gl:
             self.pool[signature]['modified'] = True
             self.pool[signature]['population'] = pop_idx
+
+        # GC's from the GL
 
         # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
         # This may require pulling new agc's from the genomic library through steady state exceptions
@@ -408,7 +427,7 @@ class gene_pool(genetic_material_store):
             ggcs.append(gGC(rgc, interface=self._interface, modified=True, population=pop_idx))
             ggcs.extend((gGC(gc, modified=True) for gc in fgc_dict.values()))
         _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
-        self.add(ggcs)
+        self.add_to_gp(ggcs)
 
         # Make an initial assessment of fitness
         for individual in self.individuals(pop_idx):
@@ -418,7 +437,30 @@ class gene_pool(genetic_material_store):
         # Purge any overstock
         self.cull_target(pop_idx)
 
-    def add(self, ggcs):
+        # Populate pGC's
+        self.pgc_layer_size = max((self.pgc_layer_size, max((p['size'] for p in self._population_data.values()))))
+        pgcs = [pgc['ref'] for pgc in self._pool.values() if pgc['population'] == 0]
+        if not len(pgcs):
+            self.pull_from_gl((RANDOM_PGC_SIGNATURE,))
+            self.num_layers = len(self.pool[RANDOM_PGC_SIGNATURE]['fitness'])
+            pgcs = list(self._gl.select(_INITIAL_GC_SQL, _PGC_DEFINITION, ('signature', 'f_count', 'fitness')))
+
+            # Extend the layers for all pGC's up to the number of layer in the random pGC.
+            for pgc in pgcs:
+                if len(pgc['f_count']) < self.num_layers:
+                    pgc['f_count'].extend([0] * (self.num_layers - len(pgc['f_count'])))
+                    pgc['fitness'].extend([0.0] * (self.num_layers - len(pgc['f_count'])))
+                if len(pgc['f_count']) > self.num_layers:
+                    _logger.fatal(f"Consistency error: pGC {pgc['signature']} has more layers than the random pGC.")
+                    assert len(pgc['f_count']) > self.num_layers
+
+            # Use the standard cull function to identify the excess.
+            # Only pGC's that are used in at least one layer are pulled from the GL.
+            for layer in range(1, self.num_layers):
+                cull_physical(pgcs, layer)
+            self.pull_from_gl((pgc['signature'] for pgc in pgcs if sum(pgc['f_count']) > 0))
+
+    def add_to_gp(self, ggcs):
         """Add gGGs to the gene pool pulling any sub-GC's from the genomic library as needed.
 
         Args
@@ -438,14 +480,14 @@ class gene_pool(genetic_material_store):
             if gcb is not None and ggc['gcb_ref'] not in self.pool:
                 children.append(gcb)
                 if _LOG_DEBUG: _logger.debug(f'Appended {gcb} to list to pull from the Genomic Library.')
-        self.pull(children)
+        self.pull_from_gl(children)
         self.add_nodes((ggc for ggc in filter(_MODIFIED_FUNC, self.pool.values())))
         #FIXME: Must correctly update higher layer fields & not wipe out this layer.
         #TODO: Not sure if this is the right place to push. Might need to update
         # locally on every change to maintain consistency but do not what to do a DB push everytime.
-        self.push()
+        self.push_to_gp()
 
-    def pull(self, signatures):
+    def pull_from_gl(self, signatures):
         """Pull aGCs and all sub-GC's recursively from the genomic library to the gene pool.
 
         aGC's are converted to gGC's.
@@ -458,7 +500,7 @@ class gene_pool(genetic_material_store):
         gcs = self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures})
         self.pool.update({gc['ref']: gc for gc in map(partial(gGC, modified=True), gcs)})
 
-    def push(self):
+    def push_to_gp(self):
         """Insert or update into locally modified gGC's into the persistent gene_pool."""
         # TODO: This can be optimised to further minimise the amount of data munging of unmodified values.
         modified_gcs = [gc for gc in filter(_MODIFIED_FUNC, self.pool.values())]
@@ -521,8 +563,11 @@ class gene_pool(genetic_material_store):
             identifier = [p for p in self._population_data if p['name'] == identifier][0]['idx']
         return (gc for gc in filter(lambda x: x['population'] == identifier, self.pool.values()))
 
-    def cull_target(self, pop_idx=0):
+    def cull_target(self, pop_idx, ngen):
         """Reduce the target population to the population size.
+
+        Individuals added to the GP by other workers are pulled in for the cull.
+        This keeps workers populations aligned.
 
         Algorithm (in order):
             1. Keep the top _FITTEST_FRACTION fittest
@@ -535,11 +580,48 @@ class gene_pool(genetic_material_store):
         1-4 may be overlapping sets.
         """
         # TODO: Implement elitist functions
-        population = tuple(self.individuals(pop_idx))
+        population = list(self.individuals(pop_idx))
+        exclusions = [i['ref'] for i in population]
+        competition = tuple(self._gl.select(_COMPETITION_SQL, {'pop_idx': pop_idx, 'exclusions': exclusions}, ('fitness', 'ref')))
+        population.extend(competition)
+        population.extend((offspring[0] for offspring in ngen))
+        if _LOG_DEBUG:
+            _logger.debug(f"{len(competition)} remote individuals identified as a competition.")
+
+        # Do the math
         weights = array([1.0 - i['fitness'][0] for i in population], float32)
         weights /= sum(weights)
         marked = len(population) - self.config['size']
-        self.delete([individual['ref'] for individual in choice(population, (marked,), False, weights)] if marked else [])
+        victims = [individual['ref'] for individual in choice(population, (marked,), False, weights)]
+
+        # Delete any victims that are in the gene pool (NB: those from other workers are not so are ignored)
+        self.delete(victims)
+
+        # Pull any non-victims that were defined by other workers into the local GP cache.
+        competition_winners = [i['ref'] for i in population if i['ref'] not in victims and 'f_count' not in i]
+        if _LOG_DEBUG:
+            _logger.debug(f"{len(competition_winners)} remote individuals pulled into local population.")
+        self.pull_from_gl(competition_winners)
+
+        # Add any new generation winners that were not cull victims to the GP
+        ngen_winners = [i for i in ngen if i[0]['ref'] not in victims]
+        self.add_to_gp(ngen_winners)
+
+        # Undefine (remove the callable) of any ngen that did not make it
+        self.undefine((i[0] for i in ngen if i[0]['ref'] in victims))
+
+    def cull_physical(self):
+        """Remove any pGC's that are not active in any layer.
+
+        A pGC that is not active in a layer has an f_count of 0.
+        """
+        purge = False
+        for layer, _ in filter(lambda x: x[1], enumerate(self.layer_evolutions)):
+            cull_physical(self.pool.values(), layer)
+            purge = True
+
+        if purge:
+            self.delete((i['ref'] for i in self.individuals(0) if not sum(i['f_count'])))
 
     def evolve_target(self, pop_idx, fitness):
         """Evolve the population and assess its fitness.
@@ -574,13 +656,10 @@ class gene_pool(genetic_material_store):
             delta_fitness = new_fitness - individual['fitness'][0]
             xGC_evolvability(individual, delta_fitness, 0)
             pGC_fitness(self, pgc, delta_fitness)
-        self.layer_evolutions[0] = len(selection)
-        self.cull_target()
-        self.push()
-        # Pull Individuals that have been created by other workers
-        # Cull again
+        self.cull_target(pop_idx, ngen)
+        self.cull_physical()
+        self.push_to_gp()
         self.metrics(time()-start)
-        return ngen
 
     def metrics(self):
         """Calculate and record metrics."""

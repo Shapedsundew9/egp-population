@@ -151,9 +151,9 @@
         "type": "BIGINT"
     },
     "population": {
-        "default": "0",
+        "default": "-1",
         "type": "SMALLINT",
-        "description": "Is a member of a target population if > 0."
+        "description": "Is a member of a target population if > 0. 0 is a pGC layer individual. -1 is a sub-GC."
 
     },
     "properties": {
