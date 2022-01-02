@@ -427,7 +427,7 @@ class gene_pool(genetic_material_store):
             ggcs.append(gGC(rgc, interface=self._interface, modified=True, population=pop_idx))
             ggcs.extend((gGC(gc, modified=True) for gc in fgc_dict.values()))
         _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
-        self.add_to_gp(ggcs)
+        self.add_to_gp_cache(ggcs)
         self.push_to_gp()
 
         # Make an initial assessment of fitness
@@ -459,20 +459,44 @@ class gene_pool(genetic_material_store):
             # Only pGC's that are used in at least one layer are pulled from the GL.
             for layer in range(1, self.num_layers):
                 cull_physical(pgcs, layer)
-            self.pull_from_gl((pgc['signature'] for pgc in pgcs if sum(pgc['f_count']) > 0))
+            self.pull_from_gl()(pgc['signature'] for pgc in pgcs if any(pgc['f_valid']))
 
-    def add_to_gp(self, ggcs):
-        """Add gGGs to the gene pool pulling any sub-GC's from the genomic library as needed.
+    def add_to_gp_cache(self, ggcs):
+        """Add gGGs to the local gene pool cache pulling any sub-GC's from the genomic library as needed.
+
+        NOTE: This *MUST* be the only function pushing GC's to the local GP cache (aside from self.pull_from_gl())
+        NOTE: This function does *NOT* update the persistent GP. The intention is to do that (slow) operation infrequently.
 
         Args
         ----
         ggcs (iterable(gGC)): gGCs to be added. All referenced GCAs and GCBs must either exist
-        in the ggcs iterable or the genomic library.
+        in the ggcs iterable, gp or the genomic library (i.e. have a signature).
         """
         children = []
-        for ggc in filter(_MODIFIED_FUNC, ggcs):
+        for ggc in ggcs:
+            # Muchos consistency checking.
+            # This function is critical as we need to ensure:
+            #   a) Everything going into the local GP cache meets a minimum bar.
+            #   b) It is efficient
+            if _LOG_DEBUG:
+                _logger.debug(f'Adding {ggc["ref"]} to local cached gene pool.')
+                if not isinstance(ggc, gGC):
+                    _logger.error(f"GC ref {ggc['ref']} is not a gGC it is a {type(ggc)}!")
+                if ggc['ref'] in self.pool:
+                    _logger.warning(f"GC ref {ggc['ref']} already in local GP cache. No-op but inefficient.")
+                gca_ref = ggc.get('gca_ref', None)
+                if gca_ref not in ggcs and gca_ref not in self.pool and ggc.get('gca', None) is None:
+                    _logger.fatal(f"Consistency failure. gca_ref in ggc: {ggc} does not exist!")
+                gcb_ref = ggc.get('gcb_ref', None)
+                if gcb_ref not in ggcs and gcb_ref not in self.pool and ggc.get('gca', None) is None:
+                    _logger.fatal(f"Consistency failure. gcb_ref in ggc: {ggc} does not exist!")
+
+            # Assumptions:
+            #   a) Is a gGC
+            #   b) Is not in the GP
+            #   c) If signature, gca or gcb is defined equivilent _ref is defined.
+            ggc['modified'] = True
             self.pool[ggc['ref']] = ggc
-            if _LOG_DEBUG: _logger.debug(f'Added {ggc["ref"]} to local cached gene pool.')
             gca = ggc.get('gca', None)
             if gca is not None and ggc['gca_ref'] not in self.pool:
                 children.append(gca)
@@ -481,14 +505,20 @@ class gene_pool(genetic_material_store):
             if gcb is not None and ggc['gcb_ref'] not in self.pool:
                 children.append(gcb)
                 if _LOG_DEBUG: _logger.debug(f'Appended {gcb} to list to pull from the Genomic Library.')
+
+        # Must pull dependents from GL before adding nodes to the graph.
+        # add_nodes() assumes the graph is complete.
         self.pull_from_gl(children)
-        self.add_nodes((ggc for ggc in filter(_MODIFIED_FUNC, self.pool.values())))
-        #FIXME: Must correctly update higher layer fields & not wipe out this layer.
+        self.add_nodes(ggcs)
 
     def pull_from_gl(self, signatures):
         """Pull aGCs and all sub-GC's recursively from the genomic library to the gene pool.
 
         aGC's are converted to gGC's.
+        Higher layer fields are updated.
+        Nodes & edges are added the the GP graph.
+
+        NOTE: This *MUST* be the only function pulling GC's into the GP from the GL.
 
         Args
         ----
@@ -496,10 +526,16 @@ class gene_pool(genetic_material_store):
         """
         if _LOG_DEBUG: _logger.debug(f'Recursively pulling {signatures} into Gene Pool.')
         gcs = self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures})
-        self.pool.update({gc['ref']: gc for gc in map(partial(gGC, modified=True), gcs)})
+        self._gl.hl_copy(gcs)
+        ggcs = {gc['ref']: gc for gc in map(partial(gGC, modified=True), gcs)}
+        self.pool.update(ggcs)
+        self.add_nodes(ggcs)
 
     def push_to_gp(self):
-        """Insert or update into locally modified gGC's into the persistent gene_pool."""
+        """Insert or update locally modified gGC's into the persistent gene_pool.
+
+        NOTE: This *MUST* be the only function pushing GC's to the persistent GP.
+        """
         # TODO: This can be optimised to further minimise the amount of data munging of unmodified values.
         modified_gcs = [gc for gc in filter(_MODIFIED_FUNC, self.pool.values())]
         for updated_gc in self._pool.upsert(modified_gcs, self._update_str, {}, _UPDATE_RETURNING_COLS):
@@ -604,7 +640,7 @@ class gene_pool(genetic_material_store):
 
         # Add any new generation winners that were not cull victims to the GP
         ngen_winners = [i for i in ngen if i[0]['ref'] not in victims]
-        self.add_to_gp(ngen_winners)
+        self.add_to_gp_cache(ngen_winners)
 
         # Undefine (remove the callable) of any ngen that did not make it
         self.undefine((i[0] for i in ngen if i[0]['ref'] in victims))
@@ -612,7 +648,7 @@ class gene_pool(genetic_material_store):
     def cull_physical(self):
         """Remove any pGC's that are not active in any layer.
 
-        A pGC that is not active in a layer has an f_count of 0.
+        A pGC that is not active in a layer has an False f_valid.
         """
         purge = False
         for layer, _ in filter(lambda x: x[1], enumerate(self.layer_evolutions)):
@@ -620,7 +656,7 @@ class gene_pool(genetic_material_store):
             purge = True
 
         if purge:
-            self.delete((i['ref'] for i in self.individuals(0) if not sum(i['f_count'])))
+            self.delete((i['ref'] for i in self.individuals(0) if not any(i['f_valid'])))
 
     def evolve_target(self, pop_idx, fitness):
         """Evolve the population and assess its fitness.
@@ -675,7 +711,7 @@ class gene_pool(genetic_material_store):
             generation = []
             gc_count = []
             c_count = []
-            filter_func = lambda x:len(x['f_count']) > layer and x['f_count']
+            filter_func = lambda x: x['f_valid']
             for individual in filter(filter_func, self.pool.values()):
                  fitness.append(individual['fitness'][layer])
                  evolvability.append(individual['evolvability'][layer])
@@ -707,7 +743,7 @@ class gene_pool(genetic_material_store):
         """Per pGC layer metrics."""
         for evolutions, layer in filter(lambda x: x[0], enumerate(self.layer_evolutions)):
             ne = []
-            filter_func = lambda x:len(x['f_count']) > layer and x['f_count']
+            filter_func = lambda x: x['f_valid']
             for individual in filter(filter_func, self.pool.values()):
                  fitness.append(individual['fitness'][layer])
                  evolvability.append(individual['evolvability'][layer])

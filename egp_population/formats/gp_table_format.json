@@ -75,6 +75,11 @@
         "default": "ARRAY[0]",
         "type": "BIGINT[]"
     },
+    "f_valid": {
+        "default": "ARRAY[false]",
+        "type": "BOOLEAN[]",
+        "description": "Length = number of layers in the gene pool. True if the GC is valid in the layer else False."
+    },
     "fitness": {
         "default": "ARRAY[0.0]",
         "type": "DOUBLE PRECISION[]"
