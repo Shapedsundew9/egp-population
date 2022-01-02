@@ -8,19 +8,19 @@ from json import load, loads, dumps
 from random import random
 from numpy.core.fromnumeric import mean
 from numpy.random import choice
-from numpy import array, float32, sum, zeros
+from numpy import array, float32, sum
 from egp_genomic_library.genetic_material_store import genetic_material_store
 from egp_genomic_library.genomic_library import (compress_json, decompress_json, UPDATE_STR, UPDATE_RETURNING_COLS,
-    sha256_to_str, sql_functions, HIGHER_LAYER_COLS)
+    sql_functions, HIGHER_LAYER_COLS)
 from egp_physics.ep_type import asstr, vtype, asint
 from egp_physics.gc_type import eGC, interface_definition, gGC, interface_hash
 from egp_physics.physics import cull_physical, stablise, xGC_evolvability, pGC_fitness, select_pGC, xGC_inherit, random_reference, RANDOM_PGC_SIGNATURE
 from egp_physics.gc_graph import gc_graph
+from egp_physics.execution import remove_callable
 from time import time, sleep
 
 
 from pypgtable import table
-from .gpm import create_callable, remove_callable
 
 
 _logger = getLogger(__name__)
@@ -538,25 +538,13 @@ class gene_pool(genetic_material_store):
         """
         # TODO: This can be optimised to further minimise the amount of data munging of unmodified values.
         modified_gcs = [gc for gc in filter(_MODIFIED_FUNC, self.pool.values())]
+        # FIXME: Use excluded columns depending on new or modified.
         for updated_gc in self._pool.upsert(modified_gcs, self._update_str, {}, _UPDATE_RETURNING_COLS):
             gc = self.pool[updated_gc['ref']]
             gc.update(updated_gc)
-            for col in HIGHER_LAYER_COLS:
+            for col in HIGHER_LAYER_COLS: # FIXME: Wrong definition - should be GP higher layer cols & use hl_copy().
                 gc[col] = gc[col[1:]]
             gc['modified']= False
-        self.define(modified_gcs)
-
-    def define(self, gcs):
-        """Define the executable object for each gc in gcs."""
-        for gc in gcs:
-            if gc.get('exec', None) is None:
-                create_callable(gc)
-
-    def undefine(self, gcs):
-        """Delete the executable object for each gc in gcs."""
-        for gc in gcs:
-            if gc.get('exec', None) is not None:
-                remove_callable(gc)
 
     def delete(self, refs):
         """Delete GCs from the gene pool.
@@ -642,8 +630,11 @@ class gene_pool(genetic_material_store):
         ngen_winners = [i for i in ngen if i[0]['ref'] not in victims]
         self.add_to_gp_cache(ngen_winners)
 
-        # Undefine (remove the callable) of any ngen that did not make it
-        self.undefine((i[0] for i in ngen if i[0]['ref'] in victims))
+        # Remove the callable of any ngen that did not make it.
+        # Be aware that some sub-GC's may be in the local gene pool cache for other reasons.
+        for gc_list in filter(lambda x: x[0]['ref'] in victims, ngen):
+            for gc in filter(lambda x: x['ref'] not in self.pool, gc_list):
+                remove_callable(gc)
 
     def cull_physical(self):
         """Remove any pGC's that are not active in any layer.
@@ -686,7 +677,6 @@ class gene_pool(genetic_material_store):
             offspring = pgc.exec((individual,))
             xGC_inherit(offspring[0], individual, pgc)
             ngen.append(offspring)
-            self.define(offspring)
             new_fitness = offspring[0]['fitness'][0] = fitness(offspring[0])
             delta_fitness = new_fitness - individual['fitness'][0]
             xGC_evolvability(individual, delta_fitness, 0)
