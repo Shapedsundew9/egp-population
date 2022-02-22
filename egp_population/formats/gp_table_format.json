@@ -1,31 +1,45 @@
 {
     "_ac_count": {
         "default": "0",
-        "type": "BIGINT"
+        "type": "INTEGER",
+        "volatile": false,
+        "gp_classes": [true, false, false, false]
     },
     "_alpha_class": {
         "default": "ARRAY[0.0, 0.0, 0.0, 0.0]",
-        "type": "DOUBLE PRECISION[4]"
+        "type": "REAL[4]",
+        "volatile": false,
+        "gp_classes": [true, false, false, false]
     },
     "_e_count": {
-        "default": "ARRAY[0]",
-        "type": "BIGINT[]"
+        "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "type": "INTEGER[16]",
+        "volatile": false,
+        "gp_classes": [true, false, false, false]
     },
     "_evolvability": {
-        "default": "ARRAY[0.0]",
-        "type": "DOUBLE PRECISION[]"
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
+        "type": "REAL[16]",
+        "volatile": false,
+        "gp_classes": [true, false, false, false]
     },
     "_f_count": {
-        "default": "ARRAY[0]",
-        "type": "BIGINT[]"
+        "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "type": "INTEGER[16]",
+        "saturates": true,
+        "volatile": false,
+        "gp_classes": [true, false, false, false]
     },
     "_fitness": {
-        "default": "ARRAY[0.0]",
-        "type": "DOUBLE PRECISION[]"
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
+        "type": "REAL[16]",
+        "volatile": false,
+        "gp_classes": [true, false, false, false]
     },
     "_reference_count": {
         "default": "0",
-        "type": "BIGINT"
+        "type": "BIGINT",
+        "volatile": false
     },
     "ac_count": {
         "default": "0",
@@ -33,145 +47,165 @@
     },
     "alpha_class": {
         "default": "ARRAY[0.0, 0.0, 0.0, 0.0]",
-        "type": "DOUBLE PRECISION[4]"
+        "type": "REAL[4]"
     },
     "ancestor_a_ref": {
         "nullable": true,
-        "type": "BIGINT"
+        "type": "BIGINT",
+        "volatile": false
     },
-    "ancestor_x_refs": {
+    "ancestor_b_ref": {
         "nullable": true,
-        "type": "BIGINT[]"
+        "type": "BIGINT",
+        "volatile": false
     },
     "offspring_count": {
-        "default": 0,
+        "default": "0",
         "type": "INTEGER"
     },
     "code_depth": {
         "default": "0",
-        "type": "INTEGER"
+        "type": "INTEGER",
+        "volatile": false
     },
     "codon_depth": {
         "default": "0",
-        "type": "INTEGER"
+        "type": "INTEGER",
+        "volatile": false
     },
     "created": {
         "default": "NOW()",
-        "type": "TIMESTAMP"
+        "type": "TIMESTAMP",
+        "volatile": false
     },
     "creator": {
         "nullable": true,
-        "type": "UUID"
+        "type": "UUID",
+        "volatile": false
     },
     "e_count": {
-        "default": "ARRAY[0]",
-        "type": "BIGINT[]"
+        "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "type": "INTEGER[16]"
     },
     "evolvability": {
-        "default": "ARRAY[0.0]",
-        "type": "DOUBLE PRECISION[]"
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
+        "type": "REAL[16]"
     },
     "f_count": {
-        "default": "ARRAY[0]",
-        "type": "BIGINT[]"
+        "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "type": "INTEGER[16]"
     },
     "f_valid": {
-        "default": "ARRAY[false]",
-        "type": "BOOLEAN[]",
+        "default": "ARRAY[false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false]",
+        "type": "BOOLEAN[16]",
         "description": "Length = number of layers in the gene pool. True if the GC is valid in the layer else False."
     },
     "fitness": {
-        "default": "ARRAY[0.0]",
-        "type": "DOUBLE PRECISION[]"
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
+        "type": "REAL[16]"
     },
     "delta_fitness": {
-        "default": "ARRAY[0.0]",
-        "type": "DOUBLE PRECISION[]"
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
+        "type": "REAL[16]"
     },
     "gca_ref": {
         "nullable": true,
-        "type": "BIGINT"
+        "type": "BIGINT",
+        "volatile": false
     },
     "gcb_ref": {
         "nullable": true,
-        "type": "BIGINT"
+        "type": "BIGINT",
+        "volatile": false
     },
     "generation": {
         "default": "0",
-        "type": "BIGINT"
+        "type": "BIGINT",
+        "volatile": false
     },
     "graph": {
-        "type": "BYTEA"
+        "type": "BYTEA",
+        "volatile": false
     },
     "if": {
-        "default": "ARRAY[0.0]",
-        "type": "DOUBLE PRECISION[]"
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
+        "type": "REAL[16]"
     },
     "igraph": {
         "nullable": true,
-        "type": "BYTEA"
+        "type": "BYTEA",
+        "volatile": false
     },
     "interface": {
         "type": "BIGINT",
-        "nullable": true
+        "nullable": true,
+        "volatile": false
     },
     "input_types": {
         "index": "gin",
         "nullable": true,
-        "type": "INTEGER[]"
+        "type": "SMALLINT[32]",
+        "volatile": false
     },
     "inputs": {
         "index": "btree",
         "nullable": true,
-        "type": "BYTEA"
+        "type": "BYTEA",
+        "volatile": false,
+        "length": 64
     },
     "meta_data": {
         "nullable": true,
-        "type": "BYTEA"
+        "type": "BYTEA",
+        "volatile": false
     },
     "num_codes": {
         "default": "0",
-        "type": "INTEGER"
+        "type": "INTEGER",
+        "volatile": false
     },
     "num_unique_codes": {
         "default": "0",
-        "type": "INTEGER"
+        "type": "INTEGER",
+        "volatile": false
     },
     "opt_num_codons": {
         "default": "0",
-        "type": "INTEGER"
+        "type": "INTEGER",
+        "volatile": false
     },
     "output_types": {
         "index": "gin",
         "nullable": true,
-        "type": "INTEGER[]"
+        "type": "SMALLINT[32]",
+        "volatile": false
     },
     "outputs": {
         "index": "btree",
         "nullable": true,
-        "type": "BYTEA"
+        "type": "BYTEA",
+        "volatile": false,
+        "length": 64
     },
     "pgc_ref": {
         "nullable": true,
-        "type": "BIGINT"
-    },
-    "population": {
-        "default": "-1",
-        "type": "SMALLINT",
-        "description": "Is a member of a target population if > 0. 0 is a pGC layer individual. -1 is a sub-GC."
-
+        "type": "BIGINT",
+        "volatile": false
     },
     "properties": {
         "default": "0",
-        "type": "BIGINT"
+        "type": "BIGINT",
+        "volatile": false
     },
     "raw_num_codons": {
         "default": "0",
-        "type": "INTEGER"
+        "type": "INTEGER",
+        "volatile": false
     },
     "ref": {
         "primary_key": true,
-        "type": "BIGINT"
+        "type": "BIGINT",
+        "volatile": false
     },
     "reference_count": {
         "default": "0",
@@ -179,7 +213,8 @@
     },
     "signature": {
         "nullable": true,
-        "type": "BYTEA"
+        "type": "BYTEA",
+        "volatile": false
     },
     "updated": {
         "default": "NOW()",

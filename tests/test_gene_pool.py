@@ -20,9 +20,21 @@ _GL = genomic_library(_GL_CONFIG)
 
 # Gene pool config
 _GP_CONFIG = gp_default_config()
-_GP_CONFIG['database']['dbname'] = 'test_db'
-_GP_CONFIG['delete_table'] = True
+_GP_CONFIG['gp']['database']['dbname'] = 'test_db'
+for table in _GP_CONFIG:
+    _GP_CONFIG[table]['delete_table'] = True
 
+
+# A population config
+_P_CONFIG = {
+    'size': 100,
+    'name': 'Divide!',
+    'inputs': ('float', 'float'),
+    'outputs': ('float',),
+    'characterize': lambda x: x,
+    'vt': vtype.EP_TYPE_STR,
+    'description': 'Input values are x, y. Desired return value is x/y.'
+}
 
 def test_default_instanciation():
     """Simple instanciation."""
@@ -35,7 +47,7 @@ def test_initialisation_1():
     Using a codon interface definition guarantees a match.
     """
     gp = gene_pool(_GL, _GP_CONFIG)
-    gp.upsert_population({'size': 1, 'inputs': (0, 0), 'outputs': (0,), 'vt': vtype.OBJECT})
+    gp.create_population(_P_CONFIG)
     assert len(gp._pool) == 1
 
 

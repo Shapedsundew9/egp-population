@@ -20,14 +20,13 @@
         "description": "JSON list of valid EP_TYPE_STRs defining the target individuals outputs."
     },
     "name": {
-        "nullable": true,
         "primary_key": true,
-        "type": "VARCHAR[64]",
+        "type": "VARCHAR",
         "description": "User defined arbitrary short name used as a unique identifier."
     },
     "description": {
         "nullable": true,
-        "type": "VARCHAR[8192]",
+        "type": "VARCHAR",
         "description": "User defined arbitrary long description."
     },
     "meta_data": {

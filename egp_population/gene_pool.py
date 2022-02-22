@@ -17,8 +17,14 @@ from egp_physics.gc_type import eGC, interface_definition, gGC, interface_hash
 from egp_physics.physics import cull_physical, stablise, xGC_evolvability, pGC_fitness, select_pGC, xGC_inherit, random_reference, RANDOM_PGC_SIGNATURE
 from egp_physics.gc_graph import gc_graph
 from egp_physics.execution import remove_callable
+from .gene_pool_cache import gene_pool_cache, SP_UID_LOWER_LIMIT, SP_UID_UPPER_LIMIT
 from time import time, sleep
-
+from multiprocessing import set_start_method, Process
+from os import cpu_count, kill
+from psutil import Process as psProcess
+from psutil import virtual_memory
+from gc import enable, disable, collect, freeze, unfreeze
+from signal import signal, SIGUSR1
 
 from pypgtable import table
 
@@ -37,6 +43,8 @@ _UPDATE_RETURNING_COLS = tuple((c for c in filter(lambda x: x != 'signature', UP
 _POPULATION_IN_DEFINITION = -1
 _MAX_INITIAL_LIST = 10000
 _MIN_PGC_LAYER_SIZE = 100
+_MINIMUM_SUBPROCESS_TIME = 60
+_MINIMUM_AVAILABLE_MEMORY = 128 * 1024 * 1024
 
 
 def compress_igraph(x):
@@ -54,6 +62,10 @@ _GP_CONVERSIONS = (
     ('meta_data', compress_json, decompress_json),
     ('igraph', compress_igraph, decompress_igraph)
 )
+_POPULATIONS_CONVERSIONS = (
+    ('inputs', dumps, loads),
+    ('outputs', dumps, loads)
+)
 
 
 # Tree structure
@@ -68,6 +80,8 @@ _PTR_MAP = {
 
 with open(join(dirname(__file__), "formats/gp_table_format.json"), "r") as file_ptr:
     _GP_TABLE_SCHEMA = load(file_ptr)
+with open(join(dirname(__file__), "formats/gp_spuid_table_format.json"), "r") as file_ptr:
+    _GP_SPUID_TABLE_SCHEMA = load(file_ptr)
 with open(join(dirname(__file__), "formats/gpp_table_format.json"), "r") as file_ptr:
     _GPP_TABLE_SCHEMA = load(file_ptr)
 with open(join(dirname(__file__), "formats/gp_metrics_format.json"), "r") as file_ptr:
@@ -81,6 +95,7 @@ with open(join(dirname(__file__), "formats/pgc_metrics_format.json"), "r") as fi
 # GC queries
 _INITIAL_GP_COLUMNS = ('ref', 'evolvability', 'signature')
 _INITIAL_GL_COLUMNS = ('signature', 'evolvability')
+_SP_UID_UPDATE_STR = '{next_spuid} = COALESCE(NULLIF({next_spuid} + 1, {max_spuid}), {next_spuid})'
 _SIGNATURE_SQL = 'WHERE ({signature} = ANY({matches}))'
 _INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs}={iidx} '
                       'AND {output_types} = {otypes} AND {outputs}={oidx} '
@@ -108,6 +123,25 @@ _DEFAULT_GP_CONFIG = {
     'create_table': True,
     'create_db': True,
     'conversions': _GP_CONVERSIONS
+}
+_DEFAULT_POPULATIONS_CONFIG = {
+    'database': {
+        'dbname': 'erasmus'
+    },
+    'table': 'gene_pool_populations',
+    'schema': _GPP_TABLE_SCHEMA,
+    'create_table': True,
+    'create_db': True,
+    'conversions': _POPULATIONS_CONVERSIONS
+}
+_DEFAULT_GP_SPUID_CONFIG = {
+    'database': {
+        'dbname': 'erasmus'
+    },
+    'table': 'gene_pool_spuid',
+    'schema': _GP_SPUID_TABLE_SCHEMA,
+    'create_table': True,
+    'create_db': True,
 }
 _DEFAULT_GP_METRICS_CONFIG = {
     'database': {
@@ -138,6 +172,8 @@ _DEFAULT_PGC_METRICS_CONFIG = {
 }
 _DEFAULT_CONFIGS = {
     "gp": _DEFAULT_GP_CONFIG,
+    "populations": _DEFAULT_POPULATIONS_CONFIG,
+    "gp_spuid": _DEFAULT_GP_SPUID_CONFIG,
     "gp_metrics": _DEFAULT_GP_METRICS_CONFIG,
     "layer_metrics": _DEFAULT_LAYER_METRICS_CONFIG,
     "pgc_metrics": _DEFAULT_PGC_METRICS_CONFIG,
@@ -160,7 +196,7 @@ class gene_pool(genetic_material_store):
     """Store of transient genetic codes & associated data for a population.
 
     The gene_pool is responsible for:
-        1. Populating calculable entry fields.
+        1. Populating calcuble entry fields.
         2. Providing an application interface to the fields.
         3. Persistence of updates to the gene pool.
         4. Local caching of GC's.
@@ -169,14 +205,14 @@ class gene_pool(genetic_material_store):
     that is not in the gene_pool.
 
     The primary difference with the genomic_library is the presence of transient data
-    and the fast (and space saving) UID method of referencing active GC's. For the same
-    reasons validation is not performed unless in debug mode.
+    and the fast (and space saving) UID method of referencing and storing active GC's.
+    For the same reasons validation is not performed unless in debug mode.
 
-    The gene_pool should be more local (faster to access) than the genomic library
-    due to the heavy transaction load.
+    The gene_pool is more local (faster to access) than the genomic library
+    due to the heavy transaction load. It is also designed to be multi-process
+    memory efficient.
 
-    The public member self.pool is the local cache of gGC's. It is a dictionary
-    mapping both 'ref' and 'signature' keys to gGC's.
+    The public member self.pool is the local cache of gGC's.
     """
 
     #TODO: Default genomic_library should be local host
@@ -194,27 +230,34 @@ class gene_pool(genetic_material_store):
         """
         super().__init__(node_label=_NL, left_edge_label=_LEL, right_edge_label=_REL)
 
-        # pool is a dictionary of ref:gGC and signature:gGC
+        # pool is a dictionary-like object of ref:gGC
         # All gGC's in pool must be valid & any modified are sync'd to the gene pool table
         # in the database at the end of the target epoch.
-        self.pool = {}
+        self.pool = gene_pool_cache()
+        _logger.info('Created Gene Pool Cache.')
         self._gl = genomic_library
         self._pool = table(configs['gp'])
+        _logger.info('Established connection to Gene Pool table.')
 
         # UID for this worker
         self.worker_id = random_reference()
+        _logger.info(f'Worker ID: {self.worker_id:08X}')
 
         # FIXME: Validators for all tables.
 
         # A dictionary of metric tables. Metric tables are undated at the end of the
         # taregt epoch.
         self._metrics = {c: table(configs[c]) for c in configs.keys() if 'metrics' in c}
+        _logger.info('Established connections to metric tables.')
 
         # ?
         self._env_config = None
         self._population_data = {}
-        self._populations_table = self._create_populations_table(configs['gp'])
+        self._populations_table = table(configs['populations'])
+        if self._populations_table.raw.creator:
+            _logger.info(f'This worker ({self.worker_id:08X}) is the Populations table creator.')
         self.populations()
+        _logger.info('Populations(s) established.')
 
         # Modify the update strings to use the right table for the gene pool.
         self._update_str = UPDATE_STR.replace('__table__', configs['gp']['table'])
@@ -225,7 +268,7 @@ class gene_pool(genetic_material_store):
         self.select = self._pool.select
 
         # The number of layers in the gene pool
-        # Layer 0 is the tsrget layer
+        # Layer 0 is the target layer
         # Layers 1 to N are pGC layers
         self.num_layers = 0
         self.pgc_layer_size = _MIN_PGC_LAYER_SIZE
@@ -236,31 +279,156 @@ class gene_pool(genetic_material_store):
         # If this instance created the gene pool then it is responsible for configuring
         # setting up database functions and initial population.
         if self._pool.raw.creator:
+            _logger.info(f'This worker ({self.worker_id:08X}) is the Gene Pool table creator.')
             self._pool.raw.arbitrary_sql(sql_functions(), read=False)
 
+        # The Sub-Process UID table
+        self._spuid_table = table(configs['gp_spuid'])
+        if self._spuid_table.raw.creator:
+            self._spuid_table.insert(({'next_spuid': SP_UID_LOWER_LIMIT},))
 
-    def _create_populations_table(self, config):
-        """Create a table to store population information.
+        # The self terminate flag.
+        # Set by the SIGUSR1 handler to True allowing the sub-process to exit gracefully writing its data
+        # to the Gene Pool table when asked.
+        self._terminate = False
+        signal(SIGUSR1, self.self_terminate)
 
-        The populations table has all the same DB details as the gene
-        pool.
+
+    def self_terminate(self):
+        """Set the self termination flag.
+
+        This is called by the SIGTERM handler.
+        """
+        self._terminate = True
+
+
+    def get_spuid(self):
+        """Get the next Sub-Process UID.
+
+        The SPUID value must be atomically incremented for the next sub-process.
+        """
+        result = self._spuid_table.update(_SP_UID_UPDATE_STR, "*", {'max_spuid': SP_UID_UPPER_LIMIT}, returning="*")
+        spuid = next(result)["next_spuid"] - 1
+        _logger.info(f'Sub-process UID claimed: {spuid:08X}')
+        return spuid
+
+
+    def evolve(self, configs, num_sub_processes=None):
+        """Co-evolve the population in pop_list.
+
+        An evolution configuration = {
+            'idx': Index of the population to evolve.
+            'max_duration': Maximum duration (wall clock time) to evolve the population in seconds.
+            'max_fitness': Stop evolution when at least one individual meets or exceeds this fitness.
+            'max_epochs': Stop evolution when at least this number of epochs have passed.
+        }
+
+        Evolution of a population will stop when at least one of the criteria are met.
+        This function will return only when all populations have met at least one of the critieria.
 
         Args
         ----
-        config (gene_pool config): The config of the gene pool
+        configs (list(dict)): List of evolution configurations for co-evolved populations.
+        num_sub_processes (int): Number of sub processes to spawn. If None the number of CPUs-1
+                                 will be used.
 
         Returns
         -------
-        pypgtable.table
+        (list(gGC)): List of fittest individual in each population.
         """
-        _config = {'database': config['database']}
-        _config['table'] = config['table'] + '_populations'
-        _config['create_table'] = True
-        _config['schema'] = _GPP_TABLE_SCHEMA
-        tbl = table(_config)
-        tbl.register_conversion('inputs', dumps, loads)
-        tbl.register_conversion('outputs', dumps, loads)
-        return tbl
+        self.pre_evolution_checks()
+        while not self._exit_criteria():
+            self._spawn(configs, num_sub_processes)
+            self._purge_local_cache()
+            self._repopulate_local_cache()
+
+
+    def _spawn(self, num_sub_processes=None):
+        """Spawn subprocesses.
+
+        Args
+        ----
+        num_sub_processes (int): Number of sub processes to spawn. If None the number of CPUs-1
+                                 will be used.
+        """
+        self._disconnect_tables()
+        set_start_method("fork")
+        if num_sub_processes is None:
+            num_sub_processes = cpu_count() - 1
+
+        # Memory clean up & freeze
+        collect()
+        disable()
+        freeze()
+
+        processes = [Process(target=self._entry_point) for _ in range(num_sub_processes)]
+        start = time()
+        for p in processes:
+
+            # Sub-processes exit if the parent exits.
+            p.daemon = True
+            p.start()
+
+        # Wait for a sub-process to terminate.
+        while all((p.is_alive() for p in processes)) and self._memory_ok(start):
+            sleep(1)
+
+        # At least one sub-process is done or we need to reclaim some memory
+        # so ask any running processes to finish up
+        for p in filter(lambda x: x.is_alive(), processes):
+            kill(p.pid, SIGUSR1)
+        for p in processes:
+            p.join()
+
+        # Re-enable GC
+        unfreeze()
+        enable()
+
+        self._reconnect_tables()
+
+        # TODO: Are we done? Did we run out of sub-process IDs?
+
+
+    def _memory_ok(self, start):
+        """"Check if, after a minimum runtime, memory available is low.
+
+        Only if we have been
+        running for more than _MINIMUM_SUBPROCESS_TIME seconds do we check to see
+        if RAM available is low (< _MINIMUM_AVAILABLE_MEMORY bytes). If it is
+        low return False else True.
+
+        Args
+        ----
+        start (float): The epoch time the sub-processes were spawned.
+
+        Returns
+        -------
+        (bool).
+        """
+        duration = int(time() - start)
+        if duration < _MINIMUM_SUBPROCESS_TIME:
+            return True
+        available = virtual_memory().available
+        ok = available > _MINIMUM_AVAILABLE_MEMORY
+        if not ok:
+            _logger.info(f'Available memory is low ({available} bytes) after {duration}s.'
+                          ' Signalling sub-processes to terminate.')
+        return ok
+
+
+    def _entry_point(self):
+        """Entry point for sub-processes."""
+        _logger.info("New sub-process created.")
+        self._reconnect_tables()
+        self.pool.set_sp_uid(self.get_spuid())
+        if self.pool.sp_uid == SP_UID_UPPER_LIMIT - 2:
+            _logger.info('Ran out of sub-process UIDs. Gene Pool must be purged and recreated to continue.')
+            self.self_terminate()
+        while not self._terminate:
+            self.epoch()
+        self._disconnect_tables()
+        _logger.info("Sub-process gracefully terminating.")
+
 
     def populations(self):
         """Return the definition of all populations.
@@ -269,6 +437,8 @@ class gene_pool(genetic_material_store):
         fitness & diversity functions defined (in 0 to all) cases.
         """
         self._population_data.update({p['idx']: p for p in self._populations_table.select()})
+        if _LOG_DEBUG:
+            _logger.debug('Populations table:\n'+str("\n".join(self._population_data.values())))
         return {p['name']: p for p in self._population_data}
 
     def create_population(self, config={}):
@@ -284,7 +454,7 @@ class gene_pool(genetic_material_store):
         If the population entry already exists it will either be defined (gene pool populated)
         and the size entry will be set to something other than _POPULATION_IN_DEFINITION or
         it will be in definition in which case the method waits indefinately checking every
-        1.0s (on average) until size changes from _POPULATION_IN_DEFINITION.
+        1.5s (on average) until size changes from _POPULATION_IN_DEFINITION.
 
         Args
         ----
@@ -293,12 +463,9 @@ class gene_pool(genetic_material_store):
             'name':(str): An unique short (<= 64 charaters) string giving a name.
             'inputs':iter(vtype): Target individual input definition using vt type.
             'outputs':iter(vtype): Target individual output definition using vt type.
-            'fitness':callable(func): The fitness function of the individuals in the population.
-                The callable must take a single parameter that is the executable function of
-                a given individual 'func'. func takes a single tuple of objects as
-                defined in 'inputs' and returns a tuple containing object types defined in 'outputs'.
-                The callable returns a single floating point 'fitness' where 0.0 <= fitness <= 1.0.
-            'diversity':callable(tuple(float)): FIXME: How does diversity work?
+            'characterize':callable(population): Characterize the population.
+                The callable must take a single parameter that is an iterable of gGC's.
+                The callable returns an iterable of characterisation dicts in the same order.
             'vt':(vtype): A vtype value defining how to interpret inputs & outputs.
             'description':(str): An arbitary string with a longer (<= 8192 characters) description.
             'meta_data':(str): Additional data about the population stored as a string (unlimited length).
@@ -312,8 +479,7 @@ class gene_pool(genetic_material_store):
             'name':(str): An unique short (<= 64 charaters) string giving a name.
             'inputs':list(str): Target individual input definition as strings.
             'outputs':list(str): Target individual output definition as strings.
-            'fitness':callable(func): The fitness function of the individuals in the population.
-            'diversity':callable(tuple(float)): FIXME: How does diversity work?
+            'characterize':callable(population): Characterize the population.
             'vt':(vtype): vtype.EP_TYPE_STR.
             'description':(str): An arbitary string with a longer (<= 8192 characters) description.
             'meta_data':(str): Additional data about the population stored as a string (unlimited length).
@@ -324,8 +490,8 @@ class gene_pool(genetic_material_store):
         data['outputs'] = [asstr(o, config['vt']) for o in config['outputs']]
         data['size'] = _POPULATION_IN_DEFINITION
         data['worker_id'] = self.worker_id
-        data['vt'] = vtype.EP_TYPE_STR
         data = next(self._populations_table.insert((data,), '*'))
+        data['vt'] = vtype.EP_TYPE_STR
 
         # If this worker created the entry then populate the gene pool.
         if data['worker_id'] == self.worker_id:
@@ -340,6 +506,28 @@ class gene_pool(genetic_material_store):
                 data = next(self._populations_table.select('{name} = {n}', {'n': data['name']}))
         return data
 
+    def register_characterization(self, pop_idx, characterization_func):
+        """Register a function to characterize a population.
+
+        Every population in the Gene Pool that is to be evolved must have a characterization
+        function defined. The characterization function takes a population (iterable of
+        individual gGC's) and calculates a fitness score and a survivability score. Both fitness
+        & survivability are values between 0.0 and 1.0 inclusive.
+
+        Fitness is the fitness of the individual to the solution. A value of 1.0 means the
+        solution is good enough & evolution ends.
+
+        Survivability is often strongly corrolated with fitness but is not the same. Survivability
+        is the relative weight of the indivdiual in the population for surviving to the next epoch.
+        It is different from fitness to allow diversity & novelty to be explored (which may lead
+        unintuitively to greater fitness.)
+
+
+
+
+
+        """
+
     def _populate(self, inputs, outputs, pop_idx, exclusions=[], num=1, vt=vtype.OBJECT):
         """Fetch or create num target GC's & recursively pull in the pGC's that made them.
 
@@ -351,12 +539,12 @@ class gene_pool(genetic_material_store):
             2. Find the maximum evolvability of each GC i.e. max at any layer.
             3. If > 2*num GC's in total: Randomly select num GC's weighted by max evolvability (no duplicates).
             4. If < num GC's in total: Add num - total randomly generated GC's.
-            5. Calculate the fitness of target GC's.
+            5. Characterise the target GC's.
             6. Cull to population size.
 
         Selection of pGC's
             1. Set the pGC layer size to the maximum population size (of all populations) or
-               _MIN_PGC_LAYER_SIZE  whichever is greater.
+               _MIN_PGC_LAYER_SIZE whichever is greater.
             2. If there are no pGCs in the GP
                 a. Add the random pGC from the GL (this defines the initial self.num_layers)
                 b. Randomly select (weighted by fitness in layer) layer size - 1 pGC's.
@@ -387,10 +575,11 @@ class gene_pool(genetic_material_store):
         # Find the GC's that match in the GP & GL
         matches = list(self._pool.raw.select(_INITIAL_GC_SQL, xputs, _INITIAL_GP_COLUMNS))
         gp_num = len(matches)
-        _logger.info(f'Found {gp_num} GCs matching input and output criteria in the gene pool.')
+        _logger.info(f'Found {gp_num} GCs matching input and output criteria in the Gene Pool table.')
         matches.extend(self._gl.library.raw.select(_INITIAL_GC_SQL, xputs, _INITIAL_GL_COLUMNS))
         _logger.info(f'Found {len(matches) - gp_num} GCs matching input and output criteria in the genomic library.')
 
+        # Matches is a list of (ref or signature, evolvability, )
         selected = [match[0] for match in matches]
         if len(matches) > 2*num:
             weights = array([max(match[1] for match in matches)], float32)
@@ -402,7 +591,7 @@ class gene_pool(genetic_material_store):
         for uid in filter(lambda x: isinstance(x, int), selected):
             if self.pool[uid]['population']:
                 clone = deepcopy(self.pool[uid])
-                uid = random_reference()
+                uid = self.pool.ref()
                 self.pool[uid] = clone
             clone['population'] = pop_idx
 
@@ -537,6 +726,7 @@ class gene_pool(genetic_material_store):
         NOTE: This *MUST* be the only function pushing GC's to the persistent GP.
         """
         # TODO: This can be optimised to further minimise the amount of data munging of unmodified values.
+        # TODO: Check for dodgy values that are not just bad logic e.g. overflows
         modified_gcs = [gc for gc in filter(_MODIFIED_FUNC, self.pool.values())]
         # FIXME: Use excluded columns depending on new or modified.
         for updated_gc in self._pool.upsert(modified_gcs, self._update_str, {}, _UPDATE_RETURNING_COLS):
@@ -649,7 +839,7 @@ class gene_pool(genetic_material_store):
         if purge:
             self.delete((i['ref'] for i in self.individuals(0) if not any(i['f_valid'])))
 
-    def evolve_target(self, pop_idx, fitness):
+    def epoch(self, pop_idx):
         """Evolve the population and assess its fitness.
 
         Evolutionary steps are:
