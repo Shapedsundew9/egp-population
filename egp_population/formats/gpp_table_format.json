@@ -1,7 +1,7 @@
 {
-    "idx": {
+    "uid": {
         "type": "SERIAL",
-        "description": "Integer ID of the population."
+        "description": "Integer UID of the population."
     },
     "worker_id": {
         "type": "BIGINT",

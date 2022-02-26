@@ -1,45 +1,33 @@
 {
-    "_ac_count": {
-        "default": "0",
-        "type": "INTEGER",
-        "volatile": false,
-        "gp_classes": [true, false, false, false]
-    },
-    "_alpha_class": {
-        "default": "ARRAY[0.0, 0.0, 0.0, 0.0]",
-        "type": "REAL[4]",
-        "volatile": false,
-        "gp_classes": [true, false, false, false]
-    },
-    "_e_count": {
+    "_pgc_e_count": {
+        "nullable": true,
         "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
         "type": "INTEGER[16]",
-        "volatile": false,
         "gp_classes": [true, false, false, false]
     },
-    "_evolvability": {
+    "_pgc_evolvability": {
+        "nullable": true,
         "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
         "type": "REAL[16]",
-        "volatile": false,
         "gp_classes": [true, false, false, false]
     },
-    "_f_count": {
+    "_pgc_f_count": {
+        "nullable": true,
         "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
         "type": "INTEGER[16]",
         "saturates": true,
-        "volatile": false,
         "gp_classes": [true, false, false, false]
     },
-    "_fitness": {
+    "_pgc_fitness": {
+        "nullable": true,
         "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
         "type": "REAL[16]",
-        "volatile": false,
         "gp_classes": [true, false, false, false]
     },
     "_reference_count": {
         "default": "0",
         "type": "BIGINT",
-        "volatile": false
+        "gp_classes": [true, false, false, false]
     },
     "ac_count": {
         "default": "0",
@@ -52,12 +40,12 @@
     "ancestor_a_ref": {
         "nullable": true,
         "type": "BIGINT",
-        "volatile": false
+        "variable": false
     },
     "ancestor_b_ref": {
         "nullable": true,
         "type": "BIGINT",
-        "volatile": false
+        "variable": false
     },
     "offspring_count": {
         "default": "0",
@@ -66,146 +54,210 @@
     "code_depth": {
         "default": "0",
         "type": "INTEGER",
-        "volatile": false
+        "variable": false
     },
     "codon_depth": {
         "default": "0",
         "type": "INTEGER",
-        "volatile": false
+        "variable": false
     },
     "created": {
         "default": "NOW()",
         "type": "TIMESTAMP",
-        "volatile": false
+        "variable": false,
+        "gp_classes": [false, false, false, false],
+        "description": "Not needed by any class as only set on push to GP for the first time."
     },
     "creator": {
         "nullable": true,
         "type": "UUID",
-        "volatile": false
+        "variable": false,
+        "gp_classes": [true, false, false, false],
+        "description": "Only needed in the stable class as all other classes are locally created and thus have the same creator."
     },
-    "e_count": {
+    "pgc_e_count": {
+        "nullable": true,
         "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
-        "type": "INTEGER[16]"
+        "type": "INTEGER[16]",
+        "gp_classes": [false, false, true, false]
     },
-    "evolvability": {
+    "pgc_evolvability": {
+        "nullable": true,
         "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
-        "type": "REAL[16]"
+        "type": "REAL[16]",
+        "gp_classes": [false, false, true, false]
     },
-    "f_count": {
+    "pgc_f_count": {
+        "nullable": true,
         "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
-        "type": "INTEGER[16]"
+        "type": "INTEGER[16]",
+        "gp_classes": [false, false, true, false]
     },
-    "f_valid": {
+    "pgc_f_valid": {
+        "nullable": true,
         "default": "ARRAY[false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false]",
         "type": "BOOLEAN[16]",
-        "description": "Length = number of layers in the gene pool. True if the GC is valid in the layer else False."
+        "gp_classes": [false, false, true, false],
+        "description": "For PGCs. True if the PGC is valid in the layer else False. TODO: This could be optimised to a SMALLINT."
+    },
+    "pgc_fitness": {
+        "nullable": true,
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
+        "type": "REAL[16]",
+        "gp_classes": [false, false, true, false]
+    },
+    "pgc_delta_fitness": {
+        "nullable": true,
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
+        "type": "REAL[16]",
+        "gp_classes": [false, false, true, false]
+    },
+    "pgc_previous_fitness": {
+        "nullable": true,
+        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
+        "type": "REAL[16]",
+        "gp_classes": [false, false, true, false],
+        "description": "The last fitness result of the PGC. This gives some temporal context to the time averaged fitness."
+    },
+    "survivability": {
+        "default": "0.0",
+        "type": "REAL",
+        "gp_classes": [false, false, false, true]
+    },
+    "e_count": {
+        "default": "0",
+        "type": "INTEGER",
+        "gp_classes": [true, true, false, true]
+    },
+    "evolvability": {
+        "default": "0.0",
+        "type": "REAL",
+        "gp_classes": [true, true, false, true]
+    },
+    "_e_count": {
+        "default": "0",
+        "type": "INTEGER",
+        "gp_classes": [true, true, false, true]
+    },
+    "_evolvability": {
+        "default": "0.0",
+        "type": "REAL",
+        "gp_classes": [true, true, false, true]
     },
     "fitness": {
-        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
-        "type": "REAL[16]"
-    },
-    "delta_fitness": {
-        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
-        "type": "REAL[16]"
+        "default": "0.0",
+        "type": "REAL",
+        "variable": false,
+        "gp_classes": [false, false, false, true]
     },
     "gca_ref": {
         "nullable": true,
         "type": "BIGINT",
-        "volatile": false
+        "variable": false
     },
     "gcb_ref": {
         "nullable": true,
         "type": "BIGINT",
-        "volatile": false
+        "variable": false
     },
     "generation": {
         "default": "0",
         "type": "BIGINT",
-        "volatile": false
+        "variable": false
     },
     "graph": {
         "type": "BYTEA",
-        "volatile": false
-    },
-    "if": {
-        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
-        "type": "REAL[16]"
+        "variable": false,
+        "gp_classes": [false, false, false, false],
+        "description": "TODO: Only need igraph or graph."
     },
     "igraph": {
         "nullable": true,
         "type": "BYTEA",
-        "volatile": false
-    },
-    "interface": {
-        "type": "BIGINT",
-        "nullable": true,
-        "volatile": false
+        "variable": false
     },
     "input_types": {
         "index": "gin",
         "nullable": true,
         "type": "SMALLINT[32]",
-        "volatile": false
+        "variable": false,
+        "gp_classes": [true, true, false, false],
+        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs."
     },
     "inputs": {
         "index": "btree",
         "nullable": true,
         "type": "BYTEA",
-        "volatile": false,
-        "length": 64
+        "variable": false,
+        "length": 64,
+        "gp_classes": [true, true, false, false],
+        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs."
     },
     "meta_data": {
         "nullable": true,
         "type": "BYTEA",
-        "volatile": false
+        "variable": false,
+        "gp_classes": [false, false, false, false],
+        "description": "There is no use for meta_data yet. It may be on a occasional basis in the future."
     },
     "num_codes": {
         "default": "0",
         "type": "INTEGER",
-        "volatile": false
+        "variable": false
     },
     "num_unique_codes": {
         "default": "0",
         "type": "INTEGER",
-        "volatile": false
+        "variable": false
     },
     "opt_num_codons": {
         "default": "0",
         "type": "INTEGER",
-        "volatile": false
+        "variable": false
     },
     "output_types": {
         "index": "gin",
         "nullable": true,
         "type": "SMALLINT[32]",
-        "volatile": false
+        "variable": false,
+        "gp_classes": [true, true, false, false],
+        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs."
     },
     "outputs": {
         "index": "btree",
         "nullable": true,
         "type": "BYTEA",
-        "volatile": false,
-        "length": 64
+        "variable": false,
+        "length": 64,
+        "gp_classes": [true, true, false, false],
+        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs."
     },
-    "pgc_ref": {
+    "ref_pgc": {
         "nullable": true,
         "type": "BIGINT",
-        "volatile": false
+        "variable": false
     },
     "properties": {
         "default": "0",
         "type": "BIGINT",
-        "volatile": false
+        "variable": false
     },
     "raw_num_codons": {
         "default": "0",
         "type": "INTEGER",
-        "volatile": false
+        "variable": false
     },
     "ref": {
         "primary_key": true,
         "type": "BIGINT",
-        "volatile": false
+        "variable": false
+    },
+    "population": {
+        "nullable": true,
+        "type": "SMALLINT",
+        "variable": false,
+        "gp_classes": [false, false, false, false],
+        "description": "TODO: Population will be defined by reference (as class will be)."
     },
     "reference_count": {
         "default": "0",
@@ -214,10 +266,14 @@
     "signature": {
         "nullable": true,
         "type": "BYTEA",
-        "volatile": false
+        "variable": false,
+        "gp_classes": [false, false, false, false],
+        "description": "Can be generated from other data when it comes to pushing updates back to the GL."
     },
     "updated": {
         "default": "NOW()",
-        "type": "TIMESTAMP"
+        "type": "TIMESTAMP",
+        "gp_classes": [false, false, false, false],
+        "description": "Only updated on GP push."
     }
 }
