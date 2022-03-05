@@ -1,26 +1,22 @@
 {
     "_pgc_e_count": {
         "nullable": true,
-        "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
         "type": "INTEGER[16]",
         "gp_classes": [true, false, false, false]
     },
     "_pgc_evolvability": {
         "nullable": true,
-        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
         "type": "REAL[16]",
         "gp_classes": [true, false, false, false]
     },
     "_pgc_f_count": {
         "nullable": true,
-        "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
         "type": "INTEGER[16]",
         "saturates": true,
         "gp_classes": [true, false, false, false]
     },
     "_pgc_fitness": {
         "nullable": true,
-        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
         "type": "REAL[16]",
         "gp_classes": [true, false, false, false]
     },
@@ -77,44 +73,37 @@
     },
     "pgc_e_count": {
         "nullable": true,
-        "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
         "type": "INTEGER[16]",
         "gp_classes": [false, false, true, false]
     },
     "pgc_evolvability": {
         "nullable": true,
-        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
         "type": "REAL[16]",
         "gp_classes": [false, false, true, false]
     },
     "pgc_f_count": {
         "nullable": true,
-        "default": "ARRAY[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
         "type": "INTEGER[16]",
         "gp_classes": [false, false, true, false]
     },
     "pgc_f_valid": {
         "nullable": true,
-        "default": "ARRAY[false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false]",
         "type": "BOOLEAN[16]",
         "gp_classes": [false, false, true, false],
         "description": "For PGCs. True if the PGC is valid in the layer else False. TODO: This could be optimised to a SMALLINT."
     },
     "pgc_fitness": {
         "nullable": true,
-        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
         "type": "REAL[16]",
         "gp_classes": [false, false, true, false]
     },
     "pgc_delta_fitness": {
         "nullable": true,
-        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
         "type": "REAL[16]",
         "gp_classes": [false, false, true, false]
     },
     "pgc_previous_fitness": {
         "nullable": true,
-        "default": "ARRAY[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
         "type": "REAL[16]",
         "gp_classes": [false, false, true, false],
         "description": "The last fitness result of the PGC. This gives some temporal context to the time averaged fitness."

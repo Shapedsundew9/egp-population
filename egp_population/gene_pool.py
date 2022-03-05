@@ -1,6 +1,6 @@
 """Gene pool management for Erasmus GP."""
 
-from copy import deepcopy, copy
+from copy import deepcopy
 from functools import partial
 from os.path import dirname, join
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
@@ -8,13 +8,13 @@ from json import load, loads, dumps
 from random import random
 from numpy.core.fromnumeric import mean
 from numpy.random import choice
-from numpy import array, float32, sum, count_nonzero, where, finfo
+from numpy import array, float32, sum, count_nonzero, where, finfo, isnan
 from egp_genomic_library.genetic_material_store import genetic_material_store
 from egp_genomic_library.genomic_library import (compress_json, decompress_json, UPDATE_STR, UPDATE_RETURNING_COLS,
     sql_functions, HIGHER_LAYER_COLS)
 from egp_physics.ep_type import asstr, vtype, asint
-from egp_physics.gc_type import eGC, interface_definition, gGC, ref_from_sig, NUM_PGC_LAYERS
-from egp_physics.physics import stablise, xGC_evolvability, pGC_fitness, select_pGC, random_reference, RANDOM_PGC_SIGNATURE
+from egp_physics.gc_type import eGC, interface_definition, gGC, ref_from_sig, NUM_PGC_LAYERS, is_pgc
+from egp_physics.physics import stablize, xGC_evolvability, pGC_fitness, select_pGC, random_reference, RANDOM_PGC_SIGNATURE
 from egp_physics.physics import population_GC_inherit
 from egp_physics.gc_graph import gc_graph
 from egp_physics.execution import remove_callable, set_gms
@@ -53,7 +53,7 @@ _MAX_POPULATION_SIZE = 100000
 
 def compress_igraph(x):
     """Extract the internal representation and compress."""
-    return compress_json(x.graph)
+    return compress_json(x.save())
 
 
 def decompress_igraph(x):
@@ -96,6 +96,10 @@ with open(join(dirname(__file__), "formats/pgc_metrics_format.json"), "r") as fi
     _PGC_METRICS_TABLE_SCHEMA = load(file_ptr)
 
 
+# Multiprocessing configuration
+set_start_method("fork")
+
+
 # GC queries
 _INITIAL_GP_COLUMNS = ('ref', 'evolvability', 'signature')
 _RELOAD_FROM_GP_COLUMNS = ('ref', 'survivability')
@@ -105,22 +109,24 @@ _REF_SQL = 'WHERE ({ref} = ANY({matches}))'
 _SIGNATURE_SQL = 'WHERE ({signature} = ANY({matches}))'
 _INITIAL_GC_SQL = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs}={iidx} '
                       'AND {output_types} = {otypes}::SMALLINT[] AND {outputs}={oidx} '
-                      'AND NOT({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT {limit}')
+                      'AND NOT({signature} = ANY({exclusions})) ORDER BY RANDOM() LIMIT {limit}')
 _RELOAD_GC_SQL = ('WHERE {population} = {population_uid} AND {input_types} = {itypes}::SMALLINT[] AND {inputs}={iidx} '
                       'AND {output_types} = {otypes}::SMALLINT[] AND {outputs}={oidx} '
                       'ORDER BY {survivability} DESC LIMIT {limit}')
 _RELOAD_PGC_SQL = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs}={iidx} '
                       'AND {output_types} = {otypes}::SMALLINT[] AND {outputs}={oidx} '
-                      'AND {pgc_f_count}[{layer}] > {zero} AND NOT({exclude_column} = ANY({exclusions})) '
+                      'AND {pgc_f_count}[{layer}] > {zero} AND NOT({ref} = ANY({exclusions})) '
                       'ORDER BY {pgc_fitness}[{layer}] DESC LIMIT {limit}')
-_LOAD_PGC_SQL = _RELOAD_PGC_SQL
+_LOAD_PGC_SQL = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs}={iidx} '
+                      'AND {output_types} = {otypes}::SMALLINT[] AND {outputs}={oidx} '
+                      'AND {pgc_f_count}[{layer}] > {zero} AND NOT({signature} = ANY({exclusions})) '
+                      'ORDER BY {pgc_fitness}[{layer}] DESC LIMIT {limit}')
 
 _PGC_DEFINITION = {
     'itypes': [asint('egp_physics.gc_type_gGC')],
     'otypes': [asint('egp_physics.gc_type_gGC')],
     'iidx': b'\x00',
     'oidx': b'\x00',
-    'exclude_column': 'signature',
     'exclusions': [RANDOM_PGC_SIGNATURE],
     'limit': _MAX_INITIAL_LIST,
     'zero': 0
@@ -369,9 +375,12 @@ class gene_pool(genetic_material_store):
                 refs.append(match[0])
                 survivability.append(match[1])
             weights = array(survivability, float32)
-            weights /= sum(weights)
+            weights_sum = weights.sum()
+            weights /= weights_sum
             if refs:
-                self.add_to_gp_cache(self._pool.recursive_select(_REF_SQL, {'matches': choice(refs, population['size'], False, weights)}))
+                size = population['size']
+                selection = choice(refs, size, False, weights) if weights_sum > 0.0 and len(refs) < size else refs
+                self.add_to_gp_cache(self._pool.recursive_select(_REF_SQL, {'matches': selection}))
             else:
                 raise ValueError("No matching population individual GC's found in Gene Pool. Something is badly wrong!")
 
@@ -381,7 +390,6 @@ class gene_pool(genetic_material_store):
         #   3. A bias knob between 1 & 2
         self.add_to_gp_cache(self._pool.select('WHERE {signature} = {sig}', {'sig': RANDOM_PGC_SIGNATURE}))
         literals = deepcopy(_PGC_DEFINITION)
-        literals['exclude_column'] = 'ref'
         literals['exclusions'] = [0]
         for layer in range(NUM_PGC_LAYERS):
             literals['layer'] = layer + 1 # postgresql array indexing starts at 1!
@@ -409,7 +417,6 @@ class gene_pool(genetic_material_store):
                                  will be used.
         """
         db_disconnect_all()
-        set_start_method("fork")
         if num_sub_processes is None:
             num_sub_processes = cpu_count() - 1
 
@@ -678,14 +685,14 @@ class gene_pool(genetic_material_store):
         ggcs = []
         _logger.info(f'{num - len(matches)} GGCs to create.')
         for _ in range(num - len(matches)):
-            rgc, fgc_dict = stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
+            rgc, fgc_dict = stablize(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
 
             # Just in case it is trickier than expected.
             retry_count = 0
             while rgc is None:
                 _logger.info('eGC random creation failed. Retrying...')
                 retry_count += 1
-                rgc, fgc_dict = stablise(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
+                rgc, fgc_dict = stablize(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
                 if retry_count == 3:
                     raise ValueError(f'Failed to create eGC with inputs = {inputs} and outputs'
                                      f' = {outputs} {retry_count} times in a row.')
@@ -703,7 +710,7 @@ class gene_pool(genetic_material_store):
 
         # Populate pGC's
         # FIXME: Better ways to do this in the future.
-        pgcs = [pgc['ref'] for pgc in self.pool.values() if self._is_pgc(pgc)]
+        pgcs = [pgc['ref'] for pgc in self.pool.values() if is_pgc(pgc)]
         if pgcs:
             _logger.info(f'{len(pgcs)} pGCs already defined in the Gene Pool.')
         else:
@@ -784,7 +791,7 @@ class gene_pool(genetic_material_store):
         if _LOG_DEBUG:
             _logger.debug(f'Recursively pulling {signatures} into Gene Pool.')
         gcs = tuple(self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures}))
-        ggcs = tuple(gc for gc in map(partial(gGC), gcs))
+        ggcs = tuple(gGC(gc) for gc in gcs)
         self._gl.hl_copy(ggcs)
         self.add_to_gp_cache(ggcs)
 
@@ -882,7 +889,7 @@ class gene_pool(genetic_material_store):
         safe = set()
 
         # FIXME: Very expensive
-        pgcs = tuple(gc['ref'] for gc in self.pool.values() if self._is_pgc(gc))
+        pgcs = tuple(gc['ref'] for gc in self.pool.values() if is_pgc(gc))
         if len(pgcs) > _MAX_PGC_LAYER_SIZE * NUM_PGC_LAYERS:
             for layer in reversed(range(NUM_PGC_LAYERS)):
                 layer_pgcs = [(ref, self.pool[ref]['pgc_survivability'][layer]) for ref in pgcs if self.pool[ref]['f_valid'][layer]]
@@ -949,21 +956,26 @@ class gene_pool(genetic_material_store):
         active = self._active_population_selection(population_uid)
 
         # TODO: Need a better data structure
-        pgcs = tuple(gc for gc in self.pool.values() if self._is_pgc(gc))
+        pgcs = tuple(gc for gc in self.pool.values() if is_pgc(gc))
         if _LOG_DEBUG:
             _logger.debug(f'{len(pgcs)} pGCs in the local GP cache.')
 
         selection = [(individual, select_pGC(pgcs, individual, 0)) for individual in active]
         for individual, pgc in selection:
-            offspring, fgcs = pgc['exec']((self.pool[individual],))
-            print(offspring)
-            new_fitness, survivability = characterize(offspring)
-            offspring[0]['fitness'] = new_fitness
-            offspring[0]['survivability'] = survivability
-            population_GC_inherit(offspring[0], individual, pgc)
-            self.add_to_gp_cache(offspring)
-            delta_fitness = new_fitness - individual['fitness']
-            xGC_evolvability(individual, delta_fitness, 0)
+            if _LOG_DEBUG:
+                _logger.debug(f'Evolving population {population_uid} individual {individual}...')
+            offspring = pgc['exec']((self.pool[individual],))
+            if offspring is not None:
+                new_fitness, survivability = characterize(offspring)
+                offspring[0]['fitness'] = new_fitness
+                offspring[0]['survivability'] = survivability
+                population_GC_inherit(offspring[0], individual, pgc)
+                self.add_to_gp_cache(offspring)
+                delta_fitness = new_fitness - individual['fitness']
+                xGC_evolvability(individual, delta_fitness, 0)
+            else:
+                # PGC did not produce an offspring.
+                delta_fitness = -self.pool[individual]['fitness']
             pGC_fitness(self, pgc, delta_fitness)
 
         # Update survivabilities as the population has changed
