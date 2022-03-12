@@ -111,4 +111,4 @@ def test_evolve_simple():
     """
     gp = gene_pool(_GL, _GP_CONFIG)
     gp.create_population(_P_CONFIG)
-    gp.evolve(num_sub_processes=1)
+    gp.evolve(num_sub_processes=0)

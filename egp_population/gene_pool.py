@@ -264,6 +264,9 @@ class gene_pool(genetic_material_store):
         # space as this Gene Pool object
         set_gms(self)
 
+        # TODO: This should select from the local cache if it can then the DB table.
+        self.select = self._pool.select
+
         # UID for this worker
         self.worker_id = random_reference()
         _logger.info(f'Worker ID: {self.worker_id:08X}')
@@ -328,7 +331,7 @@ class gene_pool(genetic_material_store):
         return spuid
 
 
-    def evolve(self, configs={}, num_sub_processes=None):
+    def evolve(self, configs={}, num_sub_processes=0):
         """Co-evolve the population in pop_list.
 
         An evolution configuration = {
@@ -354,10 +357,12 @@ class gene_pool(genetic_material_store):
         self.pre_evolution_checks()
         while not self._exit_criteria():
             _logger.info('Starting new epoch.')
-            self._spawn(configs, num_sub_processes)
-            self.delete_from_gp_cache(self.pool.keys())
-            self._repopulate_local_cache()
-
+            if num_sub_processes:
+                self._spawn(configs, num_sub_processes)
+                self.delete_from_gp_cache(self.pool.keys())
+                self._repopulate_local_cache()
+            else:
+                self._entry_point()
 
     def _repopulate_local_cache(self):
         """Gather the latest and greatest from the GP.
@@ -960,13 +965,14 @@ class gene_pool(genetic_material_store):
         if _LOG_DEBUG:
             _logger.debug(f'{len(pgcs)} pGCs in the local GP cache.')
 
-        selection = [(individual, select_pGC(pgcs, individual, 0)) for individual in active]
-        for individual, pgc in selection:
+        selection = [(individual_ref, select_pGC(pgcs, individual_ref, 0)) for individual_ref in active]
+        for individual_ref, pgc in selection:
+            individual = self.pool[individual_ref]
             if _LOG_DEBUG:
-                _logger.debug(f'Evolving population {population_uid} individual {individual}...')
-            offspring = pgc['exec']((self.pool[individual],))
+                _logger.debug(f'Evolving population {population_uid} individual {individual_ref}...')
+            offspring = pgc['exec']((individual,))
             if offspring is not None:
-                new_fitness, survivability = characterize(offspring)
+                new_fitness, survivability = characterize(offspring[0])
                 offspring[0]['fitness'] = new_fitness
                 offspring[0]['survivability'] = survivability
                 population_GC_inherit(offspring[0], individual, pgc)
@@ -975,7 +981,7 @@ class gene_pool(genetic_material_store):
                 xGC_evolvability(individual, delta_fitness, 0)
             else:
                 # PGC did not produce an offspring.
-                delta_fitness = -self.pool[individual]['fitness']
+                delta_fitness = -individual['fitness']
             pGC_fitness(self, pgc, delta_fitness)
 
         # Update survivabilities as the population has changed
