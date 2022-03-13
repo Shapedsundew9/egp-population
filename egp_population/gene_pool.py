@@ -14,7 +14,7 @@ from egp_genomic_library.genomic_library import (compress_json, decompress_json,
     sql_functions, HIGHER_LAYER_COLS)
 from egp_physics.ep_type import asstr, vtype, asint
 from egp_physics.gc_type import eGC, interface_definition, gGC, ref_from_sig, NUM_PGC_LAYERS, is_pgc
-from egp_physics.physics import stablize, xGC_evolvability, pGC_fitness, select_pGC, random_reference, RANDOM_PGC_SIGNATURE
+from egp_physics.physics import stablize, population_GC_evolvability, pGC_fitness, select_pGC, random_reference, RANDOM_PGC_SIGNATURE
 from egp_physics.physics import population_GC_inherit
 from egp_physics.gc_graph import gc_graph
 from egp_physics.execution import remove_callable, set_gms
@@ -964,21 +964,26 @@ class gene_pool(genetic_material_store):
         pgcs = tuple(gc for gc in self.pool.values() if is_pgc(gc))
         if _LOG_DEBUG:
             _logger.debug(f'{len(pgcs)} pGCs in the local GP cache.')
+            _logger.debug(f'Evolving population {population_uid}')
 
         selection = [(individual_ref, select_pGC(pgcs, individual_ref, 0)) for individual_ref in active]
         for individual_ref, pgc in selection:
             individual = self.pool[individual_ref]
             if _LOG_DEBUG:
-                _logger.debug(f'Evolving population {population_uid} individual {individual_ref}...')
+                _logger.debug(f'Individual: {individual}')
+
             offspring = pgc['exec']((individual,))
             if offspring is not None:
+                if _LOG_DEBUG:
+                    _logger.debug(f'Offspring {offspring[0]}')
+
                 new_fitness, survivability = characterize(offspring[0])
                 offspring[0]['fitness'] = new_fitness
                 offspring[0]['survivability'] = survivability
                 population_GC_inherit(offspring[0], individual, pgc)
                 self.add_to_gp_cache(offspring)
                 delta_fitness = new_fitness - individual['fitness']
-                xGC_evolvability(individual, delta_fitness, 0)
+                population_GC_evolvability(individual, delta_fitness)
             else:
                 # PGC did not produce an offspring.
                 delta_fitness = -individual['fitness']
