@@ -19,6 +19,10 @@
         "type": "VARCHAR",
         "description": "JSON list of valid EP_TYPE_STRs defining the target individuals outputs."
     },
+    "oih": {
+        "type": "BIGINT",
+        "description": "The ordered interface hash. Is used to verify all individuals meet the population interface requirements."
+    },
     "name": {
         "primary_key": true,
         "type": "VARCHAR",

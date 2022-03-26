@@ -13,7 +13,7 @@ from egp_genomic_library.genetic_material_store import genetic_material_store
 from egp_genomic_library.genomic_library import (compress_json, decompress_json, UPDATE_STR, UPDATE_RETURNING_COLS,
     sql_functions, HIGHER_LAYER_COLS)
 from egp_physics.ep_type import asstr, vtype, asint
-from egp_physics.gc_type import eGC, interface_definition, gGC, ref_from_sig, NUM_PGC_LAYERS, is_pgc
+from egp_physics.gc_type import eGC, interface_definition, gGC, ref_from_sig, NUM_PGC_LAYERS, is_pgc, ordered_interface_hash
 from egp_physics.physics import stablize, population_GC_evolvability, pGC_fitness, select_pGC, random_reference, RANDOM_PGC_SIGNATURE
 from egp_physics.physics import population_GC_inherit
 from egp_physics.gc_graph import gc_graph
@@ -557,6 +557,9 @@ class gene_pool(genetic_material_store):
         data = deepcopy(config)
         data['inputs'] = [asstr(i, config['vt']) for i in config['inputs']]
         data['outputs'] = [asstr(o, config['vt']) for o in config['outputs']]
+        _, input_types, inputs = interface_definition(config['inputs'], config['vt'])
+        _, output_types, outputs = interface_definition(config['outputs'], config['vt'])
+        data['oih'] = ordered_interface_hash(input_types, output_types, inputs, outputs)
         data['size'] = _POPULATION_IN_DEFINITION
         data['worker_id'] = self.worker_id
         data = next(self._populations_table.insert((data,), '*'))
@@ -936,6 +939,33 @@ class gene_pool(genetic_material_store):
         return choice(refs, population_size, False, weights)
 
 
+    def viable_individual(self, individual, population_oih):
+        """Check if the individual is viable as a member of the population.
+
+        This function does static checking on the viability of the individual
+        as a member of the population.
+
+        Args
+        ----
+        individual (gGC): The gGC of the individual.
+        population_oih (int): The ordered interface hash for the population the individual is to be a member of.
+
+        Returns
+        -------
+        (bool): True if the individual is viable else False.
+        """
+        if _LOG_DEBUG:
+            _logger.debug(f'Potentially viable individual {individual}')
+
+        if individual is None:
+            return False
+
+        # Check the interface is correct
+        individual_oih = ordered_interface_hash(individual['input_types'], individual['output_types'],
+            individual['inputs'], individual['outputs'])
+        return population_oih == individual_oih
+
+
     def generation(self, population_uid):
         """Evolve the population one generation and characterise it.
 
@@ -959,6 +989,7 @@ class gene_pool(genetic_material_store):
         start = time()
         characterize = self._population_data[population_uid]['characterize']
         active = self._active_population_selection(population_uid)
+        population_oih = self._population_data[population_uid]['oih']
 
         # TODO: Need a better data structure
         pgcs = tuple(gc for gc in self.pool.values() if is_pgc(gc))
@@ -967,16 +998,13 @@ class gene_pool(genetic_material_store):
             _logger.debug(f'Evolving population {population_uid}')
 
         selection = [(individual_ref, select_pGC(pgcs, individual_ref, 0)) for individual_ref in active]
-        for individual_ref, pgc in selection:
+        for count, (individual_ref, pgc) in enumerate(selection):
             individual = self.pool[individual_ref]
             if _LOG_DEBUG:
-                _logger.debug(f'Individual: {individual}')
+                _logger.debug(f'Individual ({count + 1}/{len(selection)}): {individual}')
 
             offspring = pgc['exec']((individual,))
-            if offspring is not None:
-                if _LOG_DEBUG:
-                    _logger.debug(f'Offspring {offspring[0]}')
-
+            if offspring is not None and self.viable_individual(offspring[0], population_oih):
                 new_fitness, survivability = characterize(offspring[0])
                 offspring[0]['fitness'] = new_fitness
                 offspring[0]['survivability'] = survivability
@@ -990,7 +1018,9 @@ class gene_pool(genetic_material_store):
             pGC_fitness(self, pgc, delta_fitness)
 
         # Update survivabilities as the population has changed
-        population = tuple(gc for gc in self.pool.values if gc['population'] == population_uid)
+        if _LOG_DEBUG:
+            _logger.debug('Re-characterizing population.')
+        population = tuple(gc for gc in self.pool.values() if gc['population'] == population_uid)
         self._population_data[population_uid]['recharacterize'](population)
 
         # Pushing could be expensive. Larger batches are more efficient but could cause a
