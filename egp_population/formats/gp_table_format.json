@@ -1,29 +1,74 @@
 {
+    "_e_count": {
+        "default": "0",
+        "gp_classes": [
+            true,
+            true,
+            false,
+            true
+        ],
+        "type": "INTEGER"
+    },
+    "_evolvability": {
+        "default": "0.0",
+        "gp_classes": [
+            true,
+            true,
+            false,
+            true
+        ],
+        "type": "REAL"
+    },
     "_pgc_e_count": {
+        "gp_classes": [
+            true,
+            false,
+            false,
+            false
+        ],
         "nullable": true,
-        "type": "INTEGER[16]",
-        "gp_classes": [true, false, false, false]
+        "type": "INTEGER[16]"
     },
     "_pgc_evolvability": {
+        "gp_classes": [
+            true,
+            false,
+            false,
+            false
+        ],
         "nullable": true,
-        "type": "REAL[16]",
-        "gp_classes": [true, false, false, false]
+        "type": "REAL[16]"
     },
     "_pgc_f_count": {
+        "gp_classes": [
+            true,
+            false,
+            false,
+            false
+        ],
         "nullable": true,
-        "type": "INTEGER[16]",
         "saturates": true,
-        "gp_classes": [true, false, false, false]
+        "type": "INTEGER[16]"
     },
     "_pgc_fitness": {
+        "gp_classes": [
+            true,
+            false,
+            false,
+            false
+        ],
         "nullable": true,
-        "type": "REAL[16]",
-        "gp_classes": [true, false, false, false]
+        "type": "REAL[16]"
     },
     "_reference_count": {
         "default": "0",
-        "type": "BIGINT",
-        "gp_classes": [true, false, false, false]
+        "gp_classes": [
+            true,
+            false,
+            false,
+            false
+        ],
+        "type": "BIGINT"
     },
     "ac_count": {
         "default": "0",
@@ -43,10 +88,6 @@
         "type": "BIGINT",
         "variable": false
     },
-    "offspring_count": {
-        "default": "0",
-        "type": "INTEGER"
-    },
     "code_depth": {
         "default": "0",
         "type": "INTEGER",
@@ -59,85 +100,58 @@
     },
     "created": {
         "default": "NOW()",
+        "description": "Not needed by any class as only set on push to GP for the first time.",
+        "gp_classes": [
+            false,
+            false,
+            false,
+            false
+        ],
         "type": "TIMESTAMP",
-        "variable": false,
-        "gp_classes": [false, false, false, false],
-        "description": "Not needed by any class as only set on push to GP for the first time."
+        "variable": false
     },
     "creator": {
+        "description": "Only needed in the stable class as all other classes are locally created and thus have the same creator.",
+        "gp_classes": [
+            true,
+            false,
+            false,
+            false
+        ],
         "nullable": true,
         "type": "UUID",
-        "variable": false,
-        "gp_classes": [true, false, false, false],
-        "description": "Only needed in the stable class as all other classes are locally created and thus have the same creator."
-    },
-    "pgc_e_count": {
-        "nullable": true,
-        "type": "INTEGER[16]",
-        "gp_classes": [false, false, true, false]
-    },
-    "pgc_evolvability": {
-        "nullable": true,
-        "type": "REAL[16]",
-        "gp_classes": [false, false, true, false]
-    },
-    "pgc_f_count": {
-        "nullable": true,
-        "type": "INTEGER[16]",
-        "gp_classes": [false, false, true, false]
-    },
-    "pgc_f_valid": {
-        "nullable": true,
-        "type": "BOOLEAN[16]",
-        "gp_classes": [false, false, true, false],
-        "description": "For PGCs. True if the PGC is valid in the layer else False. TODO: This could be optimised to a SMALLINT."
-    },
-    "pgc_fitness": {
-        "nullable": true,
-        "type": "REAL[16]",
-        "gp_classes": [false, false, true, false]
-    },
-    "pgc_delta_fitness": {
-        "nullable": true,
-        "type": "REAL[16]",
-        "gp_classes": [false, false, true, false]
-    },
-    "pgc_previous_fitness": {
-        "nullable": true,
-        "type": "REAL[16]",
-        "gp_classes": [false, false, true, false],
-        "description": "The last fitness result of the PGC. This gives some temporal context to the time averaged fitness."
-    },
-    "survivability": {
-        "default": "0.0",
-        "type": "REAL",
-        "gp_classes": [false, false, false, true]
+        "variable": false
     },
     "e_count": {
         "default": "0",
-        "type": "INTEGER",
-        "gp_classes": [true, true, false, true]
+        "gp_classes": [
+            true,
+            true,
+            false,
+            true
+        ],
+        "type": "INTEGER"
     },
     "evolvability": {
         "default": "0.0",
-        "type": "REAL",
-        "gp_classes": [true, true, false, true]
-    },
-    "_e_count": {
-        "default": "0",
-        "type": "INTEGER",
-        "gp_classes": [true, true, false, true]
-    },
-    "_evolvability": {
-        "default": "0.0",
-        "type": "REAL",
-        "gp_classes": [true, true, false, true]
+        "gp_classes": [
+            true,
+            true,
+            false,
+            true
+        ],
+        "type": "REAL"
     },
     "fitness": {
         "default": "0.0",
+        "gp_classes": [
+            false,
+            false,
+            false,
+            true
+        ],
         "type": "REAL",
-        "variable": false,
-        "gp_classes": [false, false, false, true]
+        "variable": false
     },
     "gca_ref": {
         "nullable": true,
@@ -155,10 +169,15 @@
         "variable": false
     },
     "graph": {
+        "description": "TODO: Only need igraph or graph.",
+        "gp_classes": [
+            false,
+            false,
+            false,
+            false
+        ],
         "type": "BYTEA",
-        "variable": false,
-        "gp_classes": [false, false, false, false],
-        "description": "TODO: Only need igraph or graph."
+        "variable": false
     },
     "igraph": {
         "nullable": true,
@@ -166,28 +185,43 @@
         "variable": false
     },
     "input_types": {
+        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs.",
+        "gp_classes": [
+            true,
+            true,
+            false,
+            false
+        ],
         "index": "gin",
         "nullable": true,
         "type": "SMALLINT[32]",
-        "variable": false,
-        "gp_classes": [true, true, false, false],
-        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs."
+        "variable": false
     },
     "inputs": {
+        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs.",
+        "gp_classes": [
+            true,
+            true,
+            false,
+            false
+        ],
         "index": "btree",
+        "length": 64,
         "nullable": true,
         "type": "BYTEA",
-        "variable": false,
-        "length": 64,
-        "gp_classes": [true, true, false, false],
-        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs."
+        "variable": false
     },
     "meta_data": {
+        "description": "There is no use for meta_data yet. It may be on a occasional basis in the future.",
+        "gp_classes": [
+            false,
+            false,
+            false,
+            false
+        ],
         "nullable": true,
         "type": "BYTEA",
-        "variable": false,
-        "gp_classes": [false, false, false, false],
-        "description": "There is no use for meta_data yet. It may be on a occasional basis in the future."
+        "variable": false
     },
     "num_codes": {
         "default": "0",
@@ -199,31 +233,124 @@
         "type": "INTEGER",
         "variable": false
     },
+    "offspring_count": {
+        "default": "0",
+        "type": "INTEGER"
+    },
     "opt_num_codons": {
         "default": "0",
         "type": "INTEGER",
         "variable": false
     },
     "output_types": {
+        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs.",
+        "gp_classes": [
+            true,
+            true,
+            false,
+            false
+        ],
         "index": "gin",
         "nullable": true,
         "type": "SMALLINT[32]",
-        "variable": false,
-        "gp_classes": [true, true, false, false],
-        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs."
+        "variable": false
     },
     "outputs": {
+        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs.",
+        "gp_classes": [
+            true,
+            true,
+            false,
+            false
+        ],
         "index": "btree",
+        "length": 64,
         "nullable": true,
         "type": "BYTEA",
-        "variable": false,
-        "length": 64,
-        "gp_classes": [true, true, false, false],
-        "description": "PGC's and populations do not need these as they are defined by thier inputs & outputs."
+        "variable": false
     },
-    "ref_pgc": {
+    "pgc_delta_fitness": {
+        "gp_classes": [
+            false,
+            false,
+            true,
+            false
+        ],
         "nullable": true,
-        "type": "BIGINT",
+        "type": "REAL[16]"
+    },
+    "pgc_e_count": {
+        "gp_classes": [
+            false,
+            false,
+            true,
+            false
+        ],
+        "nullable": true,
+        "type": "INTEGER[16]"
+    },
+    "pgc_evolvability": {
+        "gp_classes": [
+            false,
+            false,
+            true,
+            false
+        ],
+        "nullable": true,
+        "type": "REAL[16]"
+    },
+    "pgc_f_count": {
+        "gp_classes": [
+            false,
+            false,
+            true,
+            false
+        ],
+        "nullable": true,
+        "type": "INTEGER[16]"
+    },
+    "pgc_f_valid": {
+        "description": "For PGCs. True if the PGC is valid in the layer else False. TODO: This could be optimised to a SMALLINT.",
+        "gp_classes": [
+            false,
+            false,
+            true,
+            false
+        ],
+        "nullable": true,
+        "type": "BOOLEAN[16]"
+    },
+    "pgc_fitness": {
+        "gp_classes": [
+            false,
+            false,
+            true,
+            false
+        ],
+        "nullable": true,
+        "type": "REAL[16]"
+    },
+    "pgc_previous_fitness": {
+        "description": "The last fitness result of the PGC. This gives some temporal context to the time averaged fitness.",
+        "gp_classes": [
+            false,
+            false,
+            true,
+            false
+        ],
+        "nullable": true,
+        "type": "REAL[16]"
+    },
+    "population": {
+        "description": "TODO: Population will be defined by reference (as class will be).",
+        "gp_classes": [
+            false,
+            false,
+            false,
+            false
+        ],
+        "nullable": true,
+        "type": "SMALLINT",
         "variable": false
     },
     "properties": {
@@ -241,28 +368,46 @@
         "type": "BIGINT",
         "variable": false
     },
-    "population": {
+    "ref_pgc": {
         "nullable": true,
-        "type": "SMALLINT",
-        "variable": false,
-        "gp_classes": [false, false, false, false],
-        "description": "TODO: Population will be defined by reference (as class will be)."
+        "type": "BIGINT",
+        "variable": false
     },
     "reference_count": {
         "default": "0",
         "type": "BIGINT"
     },
     "signature": {
+        "description": "Can be generated from other data when it comes to pushing updates back to the GL.",
+        "gp_classes": [
+            false,
+            false,
+            false,
+            false
+        ],
         "nullable": true,
         "type": "BYTEA",
-        "variable": false,
-        "gp_classes": [false, false, false, false],
-        "description": "Can be generated from other data when it comes to pushing updates back to the GL."
+        "variable": false
+    },
+    "survivability": {
+        "default": "0.0",
+        "gp_classes": [
+            false,
+            false,
+            false,
+            true
+        ],
+        "type": "REAL"
     },
     "updated": {
         "default": "NOW()",
-        "type": "TIMESTAMP",
-        "gp_classes": [false, false, false, false],
-        "description": "Only updated on GP push."
+        "description": "Only updated on GP push.",
+        "gp_classes": [
+            false,
+            false,
+            false,
+            false
+        ],
+        "type": "TIMESTAMP"
     }
 }

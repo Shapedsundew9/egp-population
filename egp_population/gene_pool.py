@@ -772,6 +772,10 @@ class gene_pool(genetic_material_store):
                 gcb_ref = ggc.get('gcb_ref', None)
                 if gcb_ref not in ggcs_refs and gcb_ref not in self.pool and gcb_ref is not None:
                     raise ValueError(f"Consistency failure. gcb_ref {gcb_ref} in ggc ref: {ggc['ref']} does not exist!")
+                for ggc in filter(lambda x: not x['modified'] and ggc['ref'] not in self.pool, ggc_seq):
+                    _logger.debug(f"{ggc['ref']} is being added to the local cached gene pool but is not marked as modified")
+                for ggc in filter(lambda x: not x['modified'] and ggc['ref'] not in self.pool, ggc_dict.values()):
+                    _logger.debug(f"{ggc['ref']} is being added to the local cached gene pool but is not marked as modified")
 
         ggc_seq_dict = {ggc['ref']: ggc for ggc in ggc_seq}
         if ggc_dict:
@@ -812,7 +816,7 @@ class gene_pool(genetic_material_store):
         # TODO: This can be optimised to further minimise the amount of data munging of unmodified values.
         # TODO: Check for dodgy values that are not just bad logic e.g. overflows
         modified_gcs = [gc for gc in filter(_MODIFIED_FUNC, self.pool.values())]
-        # FIXME: Use excluded columns depending on new or modified.
+        # FIXME: Use excluded columns depending on new or modified and pGC or not.
         for updated_gc in self._pool.upsert(modified_gcs, self._update_str, {}, _UPDATE_RETURNING_COLS):
             gc = self.pool[updated_gc['ref']]
             gc.update(updated_gc)
