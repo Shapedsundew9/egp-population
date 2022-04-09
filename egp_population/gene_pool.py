@@ -9,25 +9,25 @@ from random import random
 from numpy.core.fromnumeric import mean
 from numpy.random import choice
 from numpy import array, float32, sum, count_nonzero, where, finfo, isnan
-from egp_genomic_library.genetic_material_store import genetic_material_store
-from egp_genomic_library.genomic_library import (compress_json, decompress_json, UPDATE_STR, UPDATE_RETURNING_COLS,
-    sql_functions, HIGHER_LAYER_COLS)
+from egp_genomic_library.genetic_material_store import genetic_material_store, GMS_TABLE_SCHEMA
+from egp_genomic_library.conversions import compress_json, decompress_json, memoryview_to_bytes
+from egp_genomic_library.genomic_library import UPDATE_STR, UPDATE_RETURNING_COLS,sql_functions, HIGHER_LAYER_COLS, _GL_TABLE_SCHEMA
 from egp_physics.ep_type import asstr, vtype, asint
-from egp_physics.gc_type import eGC, interface_definition, gGC, ref_from_sig, NUM_PGC_LAYERS, is_pgc, ordered_interface_hash
+from egp_physics.gc_type import eGC, interface_definition, ref_from_sig, NUM_PGC_LAYERS, is_pgc, ordered_interface_hash
 from egp_physics.physics import stablize, population_GC_evolvability, pGC_fitness, select_pGC, random_reference, RANDOM_PGC_SIGNATURE
 from egp_physics.physics import population_GC_inherit
 from egp_physics.gc_graph import gc_graph
 from egp_physics.execution import remove_callable, set_gms
 from .gene_pool_cache import gene_pool_cache, SP_UID_LOWER_LIMIT, SP_UID_UPPER_LIMIT
+from .gGC import gGC
 from time import time, sleep
 from multiprocessing import set_start_method, Process
 from os import cpu_count, kill
-from psutil import Process as psProcess
 from psutil import virtual_memory
 from gc import enable, disable, collect, freeze, unfreeze
 from signal import signal, SIGUSR1
-
 from pypgtable import table, db_disconnect_all
+from .gp_entry_validator import gp_entry_validator, merge
 
 
 _logger = getLogger(__name__)
@@ -63,7 +63,9 @@ def decompress_igraph(x):
 
 _GP_CONVERSIONS = (
     ('graph', compress_json, decompress_json),
-    ('meta_data', compress_json, decompress_json),
+    ('meta_data', compress_json, decompress_json), # TODO: Why store this?
+    ('inputs', None, memoryview_to_bytes),
+    ('outputs', None, memoryview_to_bytes),
     ('igraph', compress_igraph, decompress_igraph)
 )
 _POPULATIONS_CONVERSIONS = (
@@ -81,9 +83,9 @@ _PTR_MAP = {
     _REL: _NL
 }
 
-
+_GP_TABLE_SCHEMA = deepcopy(GMS_TABLE_SCHEMA)
 with open(join(dirname(__file__), "formats/gp_table_format.json"), "r") as file_ptr:
-    _GP_TABLE_SCHEMA = load(file_ptr)
+    merge(_GP_TABLE_SCHEMA, load(file_ptr))
 with open(join(dirname(__file__), "formats/gp_spuid_table_format.json"), "r") as file_ptr:
     _GP_SPUID_TABLE_SCHEMA = load(file_ptr)
 with open(join(dirname(__file__), "formats/gpp_table_format.json"), "r") as file_ptr:
@@ -101,13 +103,18 @@ set_start_method("fork")
 
 
 # GC queries
-_INITIAL_GP_COLUMNS = ('ref', 'evolvability', 'signature')
+_INITIAL_GP_COLUMNS = ('ref', 'evolvability')
 _RELOAD_FROM_GP_COLUMNS = ('ref', 'survivability')
 _INITIAL_GL_COLUMNS = ('signature', 'evolvability')
+_GL_EXCLUDE_COLUMNS = ('ancestor_a', 'ancestor_b', 'creator')
+_GL_COLUMNS = tuple(k for k in _GL_TABLE_SCHEMA.keys() if k not in _GL_EXCLUDE_COLUMNS)
 _SP_UID_UPDATE_STR = '{next_spuid} = COALESCE(NULLIF({next_spuid} + 1, {max_spuid}), {next_spuid})'
 _REF_SQL = 'WHERE ({ref} = ANY({matches}))'
 _SIGNATURE_SQL = 'WHERE ({signature} = ANY({matches}))'
-_INITIAL_GC_SQL = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs}={iidx} '
+_INITIAL_GP_SQL = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs}={iidx} '
+                      'AND {output_types} = {otypes}::SMALLINT[] AND {outputs}={oidx} '
+                      'ORDER BY RANDOM() LIMIT {limit}')
+_INITIAL_GL_SQL = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs}={iidx} '
                       'AND {output_types} = {otypes}::SMALLINT[] AND {outputs}={oidx} '
                       'AND NOT({signature} = ANY({exclusions})) ORDER BY RANDOM() LIMIT {limit}')
 _RELOAD_GC_SQL = ('WHERE {population} = {population_uid} AND {input_types} = {itypes}::SMALLINT[] AND {inputs}={iidx} '
@@ -393,7 +400,7 @@ class gene_pool(genetic_material_store):
         #   1. Fitness only (where fitness is the effect on survivability of the target population)
         #   2. Survivability / Interestingness
         #   3. A bias knob between 1 & 2
-        self.add_to_gp_cache(self._pool.select('WHERE {signature} = {sig}', {'sig': RANDOM_PGC_SIGNATURE}))
+        self.add_to_gp_cache(self._gl.select('WHERE {signature} = {sig}', {'sig': RANDOM_PGC_SIGNATURE}))
         literals = deepcopy(_PGC_DEFINITION)
         literals['exclusions'] = [0]
         for layer in range(NUM_PGC_LAYERS):
@@ -655,10 +662,10 @@ class gene_pool(genetic_material_store):
         _, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vt)
 
         # Find the GC's that match in the GP & GL
-        matches = list(self._pool.raw.select(_INITIAL_GC_SQL, xputs, _INITIAL_GP_COLUMNS))
+        matches = list(self._pool.raw.select(_INITIAL_GP_SQL, xputs, _INITIAL_GP_COLUMNS))
         gp_num = len(matches)
         _logger.info(f'Found {gp_num} GCs matching input and output criteria in the Gene Pool table.')
-        matches.extend(self._gl.library.raw.select(_INITIAL_GC_SQL, xputs, _INITIAL_GL_COLUMNS))
+        matches.extend(self._gl.library.raw.select(_INITIAL_GL_SQL, xputs, _INITIAL_GL_COLUMNS))
         _logger.info(f'Found {len(matches) - gp_num} GCs matching input and output criteria in the genomic library.')
 
         # Matches is a list of (ref or signature, evolvability, )
@@ -793,6 +800,7 @@ class gene_pool(genetic_material_store):
         aGC's are converted to gGC's.
         Higher layer fields are updated.
         Nodes & edges are added the the GP graph.
+        SHA256 signatures are replaced by GP references.
 
         NOTE: This *MUST* be the only function pulling GC's into the GP from the GL.
 
@@ -802,7 +810,7 @@ class gene_pool(genetic_material_store):
         """
         if _LOG_DEBUG:
             _logger.debug(f'Recursively pulling {signatures} into Gene Pool.')
-        gcs = tuple(self._gl.recursive_select(_SIGNATURE_SQL, literals={'matches': signatures}))
+        gcs = tuple(self._gl.recursive_select(_SIGNATURE_SQL, {'matches': signatures}, _GL_COLUMNS))
         ggcs = tuple(gGC(gc) for gc in gcs)
         self._gl.hl_copy(ggcs)
         self.add_to_gp_cache(ggcs)
@@ -816,6 +824,14 @@ class gene_pool(genetic_material_store):
         # TODO: This can be optimised to further minimise the amount of data munging of unmodified values.
         # TODO: Check for dodgy values that are not just bad logic e.g. overflows
         modified_gcs = [gc for gc in filter(_MODIFIED_FUNC, self.pool.values())]
+        if _LOG_DEBUG:
+            for gc in modified_gcs:
+                _logger.debug(f'Validating GP DB entry: {gc}')
+                for k, v in gc.items():
+                    _logger.debug(f'{k}: {type(v)}({v})')
+                if not gp_entry_validator(gc):
+                    _logger.error(f'gGC invalid:\n{gp_entry_validator.error_str()}.')
+                    raise ValueError('gGC is invalid. See log.')
         # FIXME: Use excluded columns depending on new or modified and pGC or not.
         for updated_gc in self._pool.upsert(modified_gcs, self._update_str, {}, _UPDATE_RETURNING_COLS):
             gc = self.pool[updated_gc['ref']]
