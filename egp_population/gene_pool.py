@@ -983,6 +983,9 @@ class gene_pool(genetic_material_store):
         # Check the interface is correct
         individual_oih = ordered_interface_hash(individual['input_types'], individual['output_types'],
             individual['inputs'], individual['outputs'])
+
+        if _LOG_DEBUG:
+            _logger.debug(f"Individual is {('NOT ', '')[population_oih == individual_oih]}viable.")
         return population_oih == individual_oih
 
 
@@ -1023,7 +1026,7 @@ class gene_pool(genetic_material_store):
             if _LOG_DEBUG:
                 _logger.debug(f'Individual ({count + 1}/{len(selection)}): {individual}')
 
-            offspring = pgc['exec']((individual,))
+            offspring = pgc['exec']((individual,))[0]
             if offspring is not None and self.viable_individual(offspring[0], population_oih):
                 new_fitness, survivability = characterize(offspring[0])
                 offspring[0]['fitness'] = new_fitness
