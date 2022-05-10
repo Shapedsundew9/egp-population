@@ -1,4 +1,6 @@
 """Test the Gene Pool."""
+from warnings import filterwarnings
+filterwarnings("ignore", category=DeprecationWarning)
 
 from logging import NullHandler, getLogger
 from egp_population.gene_pool import default_config as gp_default_config

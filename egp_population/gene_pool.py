@@ -13,11 +13,11 @@ from egp_genomic_library.genetic_material_store import genetic_material_store, G
 from egp_genomic_library.conversions import compress_json, decompress_json, memoryview_to_bytes
 from egp_genomic_library.genomic_library import UPDATE_STR, UPDATE_RETURNING_COLS,sql_functions, HIGHER_LAYER_COLS, _GL_TABLE_SCHEMA
 from egp_physics.ep_type import asstr, vtype, asint
-from egp_physics.gc_type import eGC, interface_definition, ref_from_sig, NUM_PGC_LAYERS, is_pgc, ordered_interface_hash
+from egp_physics.gc_type import eGC, interface_definition, NUM_PGC_LAYERS, is_pgc, ordered_interface_hash
 from egp_physics.physics import stablize, population_GC_evolvability, pGC_fitness, select_pGC, random_reference, RANDOM_PGC_SIGNATURE
 from egp_physics.physics import population_GC_inherit
 from egp_physics.gc_graph import gc_graph
-from egp_physics.execution import remove_callable, set_gms
+from egp_physics.execution import set_gms
 from .gene_pool_cache import gene_pool_cache, SP_UID_LOWER_LIMIT, SP_UID_UPPER_LIMIT
 from .gGC import gGC
 from time import time, sleep
@@ -28,6 +28,7 @@ from gc import enable, disable, collect, freeze, unfreeze
 from signal import signal, SIGUSR1
 from pypgtable import table, db_disconnect_all
 from .gp_entry_validator import gp_entry_validator, merge
+from itertools import count
 
 
 _logger = getLogger(__name__)
@@ -220,6 +221,22 @@ def default_config():
     return deepcopy(_DEFAULT_CONFIGS)
 
 
+_counter = count(2**32)
+def _reference(**kwargs):
+    """Create a unique reference.
+
+    Args
+    ----
+    kwargs: Parameters for shaping the reference.
+
+    Returns
+    -------
+    (int): signed 64 bit integer reference.
+    """
+    # FIXME: Needs to become context aware e.g. population_uid etc.
+    return next(_counter)
+
+
 class gene_pool(genetic_material_store):
     """Store of transient genetic codes & associated data for a population.
 
@@ -261,8 +278,14 @@ class gene_pool(genetic_material_store):
         # pool is a dictionary-like object of ref:gGC
         # All gGC's in pool must be valid & any modified are sync'd to the gene pool table
         # in the database at the end of the target epoch.
-        self.pool = {}
-        _logger.info('Created Gene Pool Cache.')
+        self.pool = gene_pool_cache()
+        gGC.gpc = self.pool
+        _logger.info('Gene Pool Cache created.')
+
+        # TODO: Define how references are created in the multi-process world
+        gGC.set_next_reference(_reference)
+        # gGC.set_ref_from_sig(?)
+
         self._gl = genomic_library
         self._pool = table(configs['gp'])
         _logger.info('Established connection to Gene Pool table.')
@@ -392,7 +415,8 @@ class gene_pool(genetic_material_store):
             if refs:
                 size = population['size']
                 selection = choice(refs, size, False, weights) if weights_sum > 0.0 and len(refs) < size else refs
-                self.add_to_gp_cache(self._pool.recursive_select(_REF_SQL, {'matches': selection}))
+                for gc in self._pool.recursive_select(_REF_SQL, {'matches': selection}):
+                    gGC(gc)
             else:
                 raise ValueError("No matching population individual GC's found in Gene Pool. Something is badly wrong!")
 
@@ -400,20 +424,20 @@ class gene_pool(genetic_material_store):
         #   1. Fitness only (where fitness is the effect on survivability of the target population)
         #   2. Survivability / Interestingness
         #   3. A bias knob between 1 & 2
-        self.add_to_gp_cache(self._gl.select('WHERE {signature} = {sig}', {'sig': RANDOM_PGC_SIGNATURE}))
+        for gc in self._gl.select('WHERE {signature} = {sig}', {'sig': RANDOM_PGC_SIGNATURE}):
+            gGC(gc)
         literals = deepcopy(_PGC_DEFINITION)
         literals['exclusions'] = [0]
         for layer in range(NUM_PGC_LAYERS):
             literals['layer'] = layer + 1 # postgresql array indexing starts at 1!
             pgcs = tuple(self._pool.select(_RELOAD_PGC_SQL, literals))
             literals['exclusions'].extend((pgc['ref'] for pgc in pgcs))
-            self.add_to_gp_cache(pgcs)
-
+            for gc in pgcs:
+                gGC(gc)
 
     def _exit_criteria(self):
         """Are we done?"""
         return False
-
 
     def pre_evolution_checks(self):
         """Make sure everything is good before we start."""
@@ -622,6 +646,8 @@ class gene_pool(genetic_material_store):
         Construct a population with inputs and outputs as defined by inputs, outputs & vt.
         Inputs & outputs define the GC's interface.
 
+        NOTE: The gene pool cache must be empty for this population.
+
         FIXME: Pull from GMS or start with random?
 
         Selection of the target population:
@@ -666,7 +692,7 @@ class gene_pool(genetic_material_store):
         gp_num = len(matches)
         _logger.info(f'Found {gp_num} GCs matching input and output criteria in the Gene Pool table.')
         matches.extend(self._gl.library.raw.select(_INITIAL_GL_SQL, xputs, _INITIAL_GL_COLUMNS))
-        _logger.info(f'Found {len(matches) - gp_num} GCs matching input and output criteria in the genomic library.')
+        _logger.info(f'Found {len(matches) - gp_num} GCs matching input and output criteria in the Genomic Library.')
 
         # Matches is a list of (ref or signature, evolvability, )
         selected = [match[0] for match in matches]
@@ -675,31 +701,23 @@ class gene_pool(genetic_material_store):
             weights /= sum(weights)
             selected = choice(selected, 2*num, False, weights)
 
-        # For those selected from the GP mark them as individuals of this population
-        # If they are already part of a population make a copy and give it a new reference.
-        for uid in filter(lambda x: isinstance(x, int) and x in self.pool, selected):
-            clone = deepcopy(self.pool[uid])
-            uid = random_reference()
-            self.pool[uid] = clone
-            clone['population'] = population_uid
-        matches = [uid for uid in filter(lambda x: isinstance(x, int) and x not in self.pool, selected)]
-        ggcs = tuple(gGC(gc) for gc in self._pool.recursive_select(_REF_SQL, {'matches': matches}))
-        self.add_to_gp_cache(ggcs)
+        # selected is a list of ref or signature. refs (ints) are from the Gene Pool.
+        # For those selected from the GP pull them into the GPC as individuals of this population
+        from_gp = [uid for uid in filter(lambda x: isinstance(x, int), selected)]
+        tuple(gGC(gc,population_uid=population_uid) for gc in self._pool.recursive_select(_REF_SQL, {'matches': from_gp}))
 
-        # For those from the genomic library pull them in and mark them as modified (new)
-        # to the gene pool.
+        # Pull those with signatures in from the Genomic Library
         from_gl = [uid for uid in filter(lambda x: not isinstance(x, int), selected)]
-        self.pull_from_gl(from_gl)
-        for signature in from_gl:
-            self.pool[ref_from_sig(signature)]['population'] = population_uid
+        self.pull_from_gl(from_gl, population_uid)
 
         # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
         # This may require pulling new agc's from the genomic library through steady state exceptions
         # in the stabilise() in which case we need to pull in all dependents not already in the
         # gene pool.
         ggcs = []
-        _logger.info(f'{num - len(matches)} GGCs to create.')
-        for _ in range(num - len(matches)):
+        num_to_create = num - len(matches)
+        _logger.info(f'{num_to_create} GGCs to create.')
+        for _ in range(num_to_create):
             rgc, fgc_dict = stablize(self._gl, eGC(inputs=inputs, outputs=outputs, vt=vt))
 
             # Just in case it is trickier than expected.
@@ -715,7 +733,6 @@ class gene_pool(genetic_material_store):
             ggcs.append(gGC(rgc, population=population_uid))
             ggcs.extend((gGC(gc) for gc in fgc_dict.values()))
         _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
-        self.add_to_gp_cache(ggcs)
         self.push_to_gp()
 
         # Make an initial assessment of fitness
@@ -747,54 +764,7 @@ class gene_pool(genetic_material_store):
                     if not layer:
                         raise ValueError("There MUST be pGC's in layer 0! Are codons loaded into the Genomic Library?")
 
-
-    def add_to_gp_cache(self, ggc_seq, ggc_dict={}):
-        """Add gGGs to the local gene pool cache pulling any sub-GC's from the genomic library as needed.
-
-        All referenced GCAs and GCBs must either exist in the ggc_seq or ggc_dict or GP.
-        NOTE: This *MUST* be the only function pushing GC's to the local GP cache.
-        NOTE: This function does *NOT* update the persistent GP. The intention is to do that (slow) operation infrequently.
-
-        Args
-        ----
-        ggc_seq (seq(gGC)): gGCs to be added.
-        ggc_dict (dict(gGC)): gGCs to be added in the format ggc['ref']: ggc
-        """
-        if _LOG_DEBUG:
-            ggcs_refs = {ggc['ref'] for ggc in ggc_seq}
-            ggcs_refs.update(ggc_dict.keys())
-            for ggc in ggc_seq:
-                # Muchos consistency checking.
-                # This function is critical as we need to ensure:
-                #   a) Everything going into the local GP cache meets a minimum bar.
-                #   b) It is efficient
-                _logger.debug(f'Adding {ggc["ref"]} to local cached gene pool.')
-                if not isinstance(ggc, gGC):
-                    _logger.error(f"GC ref {ggc['ref']} is not a gGC it is a {type(ggc)}!")
-                gca_ref = ggc.get('gca_ref', None)
-                if ggc['ref'] in self.pool:
-                    _logger.debug(f"GC {ggc['ref']} is already present in the GP cache. NO-OP.")
-                if gca_ref not in ggcs_refs and gca_ref not in self.pool and gca_ref is not None:
-                    raise ValueError(f"Consistency failure. gca_ref {gca_ref} in ggc: {ggc['ref']} does not exist!")
-                gcb_ref = ggc.get('gcb_ref', None)
-                if gcb_ref not in ggcs_refs and gcb_ref not in self.pool and gcb_ref is not None:
-                    raise ValueError(f"Consistency failure. gcb_ref {gcb_ref} in ggc ref: {ggc['ref']} does not exist!")
-                for ggc in filter(lambda x: not x['modified'] and ggc['ref'] not in self.pool, ggc_seq):
-                    _logger.debug(f"{ggc['ref']} is being added to the local cached gene pool but is not marked as modified")
-                for ggc in filter(lambda x: not x['modified'] and ggc['ref'] not in self.pool, ggc_dict.values()):
-                    _logger.debug(f"{ggc['ref']} is being added to the local cached gene pool but is not marked as modified")
-
-        ggc_seq_dict = {ggc['ref']: ggc for ggc in ggc_seq}
-        if ggc_dict:
-            ggc_dict.update(ggc_seq_dict)
-            self.pool.update(ggc_dict)
-            self.add_nodes(ggc_dict.values())
-        else:
-            self.pool.update(ggc_seq_dict)
-            self.add_nodes(ggc_seq)
-
-
-    def pull_from_gl(self, signatures):
+    def pull_from_gl(self, signatures, population_uid=None):
         """Pull aGCs and all sub-GC's recursively from the genomic library to the gene pool.
 
         aGC's are converted to gGC's.
@@ -807,14 +777,15 @@ class gene_pool(genetic_material_store):
         Args
         ----
         signatures (iterable(bytes[32])): Signatures to pull from the genomic library.
+        population_uid: (int or None): Population UID to label ALL top level GC's with
         """
         if _LOG_DEBUG:
             _logger.debug(f'Recursively pulling {signatures} into Gene Pool.')
         gcs = tuple(self._gl.recursive_select(_SIGNATURE_SQL, {'matches': signatures}, _GL_COLUMNS))
-        ggcs = tuple(gGC(gc) for gc in gcs)
+        ggcs = tuple(gGC(gc, population_uid=population_uid) for gc in gcs if gc['signature'] in signatures)
         self._gl.hl_copy(ggcs)
-        self.add_to_gp_cache(ggcs)
-
+        ggcs = tuple(gGC(gc) for gc in gcs if gc['signature'] not in signatures)
+        self._gl.hl_copy(ggcs)
 
     def push_to_gp(self):
         """Insert or update locally modified gGC's into the persistent gene_pool.
@@ -829,7 +800,7 @@ class gene_pool(genetic_material_store):
                 _logger.debug(f'Validating GP DB entry: {gc}')
                 for k, v in gc.items():
                     _logger.debug(f'{k}: {type(v)}({v})')
-                if not gp_entry_validator(gc):
+                if not gp_entry_validator(dict(gc)):
                     _logger.error(f'gGC invalid:\n{gp_entry_validator.error_str()}.')
                     raise ValueError('gGC is invalid. See log.')
         # FIXME: Use excluded columns depending on new or modified and pGC or not.
@@ -854,12 +825,13 @@ class gene_pool(genetic_material_store):
         refs = self.remove_nodes(refs)
         _logger.info(f'Removing {len(refs)} GCs from GP local cache.')
         for ref in refs:
-            gc = self.pool[ref]
-            if gc.get('exec', None) is not None:
-                remove_callable(gc)
+            # The gGC object cleans up all its memory (including the executable function)
             del self.pool[ref]
         # if refs:
             # FIXME: How does this work if another worker is using the GC?
+            # 7-May-2022: I think the GP DB is only cleaned up in the parent process which
+            # relieves issues for sub-processes. Parallel (remote) processes using the
+            # same GP DB upsert so there is no risk.
             # self._pool.delete('{ref} in {ref_tuple}', {'ref_tuple': refs})
 
     def individuals(self, identifier=0):
@@ -945,9 +917,8 @@ class gene_pool(genetic_material_store):
         """
         refs = tuple(gc['ref'] for gc in self.pool.values() if gc['population'] == population_uid)
         population_size = self._population_data[population_uid]['size']
-        if len(refs) < population_size:
-            raise ValueError(f'Population {population_uid} only has {len(refs)}'
-                       f' individuals which is less than the population size of {population_size}!')
+        assert len(refs) == population_size, (f'Population {population_uid} only has {len(refs)}'
+            f' individuals which is less than the population size of {population_size}!')
         survivability = array(tuple(gc['survivability'] for gc in self.pool.values() if gc['population'] == population_uid), dtype=float32)
         survivors = count_nonzero(survivability)
 
@@ -1025,20 +996,23 @@ class gene_pool(genetic_material_store):
             individual = self.pool[individual_ref]
             if _LOG_DEBUG:
                 _logger.debug(f'Individual ({count + 1}/{len(selection)}): {individual}')
+                _logger.debug(f"Mutating with pGC {pgc['ref']}")
 
             offspring = pgc['exec']((individual,))[0]
+            if _LOG_DEBUG:
+                _logger.debug(f'Offspring ({count + 1}/{len(selection)}): {offspring}')
+
             if offspring is not None and self.viable_individual(offspring[0], population_oih):
                 new_fitness, survivability = characterize(offspring[0])
                 offspring[0]['fitness'] = new_fitness
                 offspring[0]['survivability'] = survivability
                 population_GC_inherit(offspring[0], individual, pgc)
-                self.add_to_gp_cache(offspring)
                 delta_fitness = new_fitness - individual['fitness']
                 population_GC_evolvability(individual, delta_fitness)
             else:
                 # PGC did not produce an offspring.
                 delta_fitness = -individual['fitness']
-            pGC_fitness(self, pgc, delta_fitness)
+            pgc_evolutions = pGC_fitness(self, pgc, delta_fitness)
 
         # Update survivabilities as the population has changed
         if _LOG_DEBUG:
@@ -1054,79 +1028,55 @@ class gene_pool(genetic_material_store):
         # to the persistent GP if they are not there already.
         self.cull_population(population_uid)
         self.cull_physical()
-        self.metrics(time()-start)
+        self.metrics(population_uid, time()-start)
 
-    def metrics(self):
-        """Calculate and record metrics."""
-        self.layer_metrics()
-        self.pgc_metrics()
-        self.gp_metrics()
-        self.layer_evolutions = [0] * NUM_PGC_LAYERS
+    def metrics(self, population_uid, duration):
+        """Calculate and record metrics.
 
-    def layer_metrics(self, duration):
-        """Per layer metrics."""
-        for evolutions, layer in filter(lambda x: x[0], enumerate(self.layer_evolutions)):
-            fitness = []
-            evolvability = []
-            generation = []
-            gc_count = []
-            c_count = []
-            filter_func = lambda x: x['f_valid']
-            for individual in filter(filter_func, self.pool.values()):
-                 fitness.append(individual['fitness'][layer])
-                 evolvability.append(individual['evolvability'][layer])
-                 generation.append(individual['generation'][layer])
-                 gc_count.append(individual['gc_count'])
-                 c_count.append(individual['c_count'])
-            self._metrics['layer_metrics'].insert({
-                'layer': layer,
-                'f_max': max(fitness),
-                'f_mean': mean(fitness),
-                'f_min': min(fitness),
-                'e_max': max(evolvability),
-                'e_mean': mean(evolvability),
-                'e_min': min(evolvability),
-                'g_max': max(generation),
-                'g_mean': mean(generation),
-                'g_min': min(generation),
-                'gcc_max': max(gc_count),
-                'gcc_mean': mean(gc_count),
-                'gcc_min': min(gc_count),
-                'cc_max': max(c_count),
-                'cc_mean': mean(c_count),
-                'cc_min': min(c_count),
-                'eps': evolutions / duration,
-                'tag': 0,
-                'worker_id': 0})
+        Called one per generation as the last function.
+
+        Args
+        ----
+        duration (float): Number of seconds it took the last generation to execute.
+        population_uid (int): The index of the target population to evolve
+        """
+        self.target_metrics(population_uid, duration)
+        self.pgc_metrics(duration)
+        self.gp_metrics(duration)
+
+    def target_metrics(self, population_uid, duration):
+        """Target metrics."""
+        # TODO: Define constants for field names
+        fitness = [individual['fitness'] for individual in self.individuals(population_uid)]
+        evolvability = [individual['evolvability'] for individual in self.individuals(population_uid)]
+        generation = [individual['generation'] for individual in self.individuals(population_uid)]
+        gc_count = [individual['num_codes'] for individual in self.individuals(population_uid)]
+        c_count = [individual['num_codons'] for individual in self.individuals(population_uid)]
+        self._metrics['layer_metrics'].insert([{
+            'layer': 0,
+            'f_max': max(fitness),
+            'f_mean': mean(fitness),
+            'f_min': min(fitness),
+            'e_max': max(evolvability),
+            'e_mean': mean(evolvability),
+            'e_min': min(evolvability),
+            'g_max': max(generation),
+            'g_mean': mean(generation),
+            'g_min': min(generation),
+            'gcc_max': max(gc_count),
+            'gcc_mean': mean(gc_count),
+            'gcc_min': min(gc_count),
+            'cc_max': max(c_count),
+            'cc_mean': mean(c_count),
+            'cc_min': min(c_count),
+            'eps': 0.0,
+            'tag': 0,
+            'worker_id': 0}])
 
     def pgc_metrics(self, duration):
         """Per pGC layer metrics."""
-        for evolutions, layer in filter(lambda x: x[0], enumerate(self.layer_evolutions)):
-            ne = []
-            filter_func = lambda x: x['f_valid']
-            for individual in filter(filter_func, self.pool.values()):
-                 fitness.append(individual['fitness'][layer])
-                 evolvability.append(individual['evolvability'][layer])
-                 generation.append(individual['generation'][layer])
-                 gc_count.append(individual['gc_count'])
-                 c_count.append(individual['c_count'])
-            self._metrics['layer_metrics'].insert({
-                'layer': layer,
-                'f_max': max(fitness),
-                'f_mean': mean(fitness),
-                'f_min': min(fitness),
-                'e_max': max(evolvability),
-                'e_mean': mean(evolvability),
-                'e_min': min(evolvability),
-                'g_max': max(generation),
-                'g_mean': mean(generation),
-                'g_min': min(generation),
-                'gcc_max': max(gc_count),
-                'gcc_mean': mean(gc_count),
-                'gcc_min': min(gc_count),
-                'cc_max': max(c_count),
-                'cc_mean': mean(c_count),
-                'cc_min': min(c_count),
-                'eps': evolutions / duration,
-                'tag': 0,
-                'worker_id': 0})
+        pass
+
+    def gp_metrics(self, duration):
+        """Per pGC layer metrics."""
+        pass
