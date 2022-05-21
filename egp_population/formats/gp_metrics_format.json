@@ -44,7 +44,7 @@
         "description": "An arbitary tag grouping rows."
     },
     "created": {
-        "default": "NOW()",
+        "default": "(NOW() AT TIME ZONE 'UTC')",
         "type": "TIMESTAMP",
         "description": "The time at which the layer statistics were calculated. This is the end of the target layer epoch."
     }

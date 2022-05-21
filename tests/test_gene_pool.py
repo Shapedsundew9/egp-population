@@ -24,9 +24,9 @@ _GL = genomic_library(_GL_CONFIG)
 
 # Gene pool config
 _GP_CONFIG = gp_default_config()
-_GP_CONFIG['gp']['database']['dbname'] = 'test_db'
 for table in _GP_CONFIG:
     _GP_CONFIG[table]['delete_table'] = True
+    _GP_CONFIG[table]['database']['dbname'] = 'test_db'
 
 # Divide! Characterization function
 _X1_TEST = randint(-100,100,(100,),dtype=int32).astype(float32)
@@ -113,4 +113,5 @@ def test_evolve_simple():
     """
     gp = gene_pool(_GL, _GP_CONFIG)
     gp.create_population(_P_CONFIG)
+    _logger.debug('Population created.')
     gp.evolve(num_sub_processes=0)

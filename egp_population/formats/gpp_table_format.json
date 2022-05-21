@@ -39,7 +39,7 @@
         "description": "User defined arbitary field."
     },
     "created": {
-        "default": "NOW()",
+        "default": "(NOW() AT TIME ZONE 'UTC')",
         "type": "TIMESTAMP",
         "description": "The time at which the population entry was created."
     }

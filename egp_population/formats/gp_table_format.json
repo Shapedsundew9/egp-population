@@ -36,7 +36,7 @@
         "nullable": true,
         "type": "REAL[16]"
     },
-    "population": {
+    "population_uid": {
         "description": "TODO: Population will be defined by reference (as class will be).",
         "nullable": true,
         "type": "SMALLINT"
