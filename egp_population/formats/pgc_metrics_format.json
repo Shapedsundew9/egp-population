@@ -15,6 +15,10 @@
         "type": "REAL",
         "description": "The mean fitness for the population."
     },
+    "f_dist": {
+        "type": "INT[10]",
+        "description": "The relative fraction of the population in an even distribution of bins between 0.0 and 1.0."
+    },
     "f_min": {
         "type": "REAL",
         "description": "The minimum fitness for the population."

@@ -8,13 +8,13 @@ from json import load, loads, dumps
 from random import random
 from numpy.core.fromnumeric import mean
 from numpy.random import choice
-from numpy import array, float32, sum, count_nonzero, where, finfo, isnan
+from numpy import array, float32, sum, count_nonzero, where, finfo, histogram
 from egp_genomic_library.genetic_material_store import genetic_material_store, GMS_TABLE_SCHEMA
 from egp_genomic_library.conversions import compress_json, decompress_json, memoryview_to_bytes
 from egp_genomic_library.genomic_library import UPDATE_STR, UPDATE_RETURNING_COLS, sql_functions, HIGHER_LAYER_COLS, _GL_TABLE_SCHEMA
 from egp_physics.ep_type import asstr, vtype, asint
 from egp_physics.gc_type import eGC, interface_definition, NUM_PGC_LAYERS, is_pgc, ordered_interface_hash
-from egp_physics.physics import stablize, population_GC_evolvability, pGC_fitness, select_pGC, random_reference, RANDOM_PGC_SIGNATURE
+from egp_physics.physics import stablize, population_GC_evolvability, pGC_fitness, select_pGC, RANDOM_PGC_SIGNATURE
 from egp_physics.physics import population_GC_inherit
 from egp_physics.gc_graph import gc_graph
 from egp_physics.execution import set_gms
@@ -29,6 +29,7 @@ from signal import signal, SIGUSR1
 from pypgtable import table, db_disconnect_all
 from .gp_entry_validator import gp_entry_validator, merge
 from itertools import count
+from .utils.reference import random_reference
 
 
 _logger = getLogger(__name__)
@@ -1097,6 +1098,7 @@ class gene_pool(genetic_material_store):
                 'count': len(fitness),
                 'f_max': max(fitness),
                 'f_mean': mean(fitness),
+                'f_dist': [int(b) for b in histogram(fitness, 10, (0, 1.0))[0]],
                 'f_min': min(fitness),
                 'e_max': max(evolvability),
                 'e_mean': mean(evolvability),
