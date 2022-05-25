@@ -1,0 +1,86 @@
+{
+    "ancestor_a_ref": {
+        "nullable": true,
+        "type": "integer"
+    },
+    "ancestor_b_ref": {
+        "nullable": true,
+        "type": "integer"
+    },
+    "exec":{
+    },
+    "fitness": {
+        "nullable": true,
+        "max": 1.0,
+        "min": 0.0,
+        "type": "float"
+    },
+    "gca_ref": {
+        "nullable": true,
+        "type": "integer"
+    },
+    "gcb_ref": {
+        "nullable": true,
+        "type": "integer"
+    },
+    "igraph": {
+        "type": "igraph"
+    },
+    "modified":{
+    },
+    "offspring_count": {
+        "max": 2147483647,
+        "min": 0,
+        "type": "integer"
+    },
+    "pgc_delta_fitness": {
+        "maxlength": 16,
+        "minlength": 16,
+        "nullable": true,
+        "schema": {
+            "min": -1,
+            "max": 1,
+            "type": "float"
+        },
+        "type": "list"
+    },
+    "pgc_f_valid": {
+        "maxlength": 16,
+        "minlength": 16,
+        "nullable": true,
+        "schema": {
+            "type": "boolean"
+        },
+        "type": "list"
+    },
+    "pgc_previous_fitness": {
+        "maxlength": 16,
+        "minlength": 16,
+        "nullable": true,
+        "schema": {
+            "max": 1.0,
+            "min": 0.0,
+            "type": "float"
+        },
+        "type": "list"
+    },
+    "pgc_ref": {
+        "nullable": true,
+        "type": "integer"
+    },
+    "population_uid": {
+        "nullable": true,
+        "max": 32767,
+        "min": 0,
+        "type": "integer"
+    },
+    "ref": {
+        "type": "integer"
+    },
+    "survivability": {
+        "nullable": true,
+        "max": 1.0,
+        "min": 0.0,
+        "type": "float"
+    }
+}

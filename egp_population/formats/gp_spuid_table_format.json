@@ -1,0 +1,6 @@
+{
+    "next_spuid": {
+        "default": "0",
+        "type": "INTEGER"
+    }
+}
