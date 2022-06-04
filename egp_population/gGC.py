@@ -20,16 +20,55 @@ def set_GPC(gpc):
     GPC = gpc
 
 
-def gGC(gc={}, modified=True, population_uid=None, sv=True):
-    if _LOG_DEBUG and 'signature' in gc:
-        _logger.debug(f"New gGC with signature: {gc['signature']} (ref: {_GC.ref_from_sig(gc['signature'])}) found.")
-    if 'ref' in gc and gc['ref'] in GPC:
-        if _LOG_DEBUG:
-            _logger.debug(f"gGC is already in the Gene Pool.")
-        return GPC[gc['ref']]
-    ggc = _gGC(gc, modified, population_uid, sv)
-    GPC[ggc['ref']] = ggc
-    return ggc
+def gGC(gcs=tuple(), modified=True, population_uid=None, sv=True):
+    """Wrap creation of gGC objects.
+
+    This exists to do global scope validation and
+    optimisations when a gGC is created. It is a single point of entry
+    to the Gene Pool Cache.
+
+    gcs must be self consistent. Any referenced GC must either already be
+    in the GPC or in gcs.
+
+    Validations
+        1. Does the GC already exist.
+        2. Does an allotrope exist. NOT IMPLEMENTED.
+        3. Do GCA &| GCB exist in the cache. NOT IMPLEMENTED.
+
+    Optimisations
+        1. Consolidate executable code to reduce the size of the call graph. NOT IMPLEMENTED.
+        2. Identify duplicates. NOT IMPLEMENTED. TODO: Dupes should reduce probability of creation of another dupe.
+        3. Alias allotropes. NOT IMPLEMENTED.
+    """
+    ggcs = []
+    for ggc in gcs:
+        if _LOG_DEBUG and 'signature' in ggc:
+            _logger.debug(f"New gGC with signature: {ggc['signature']} (ref: {_GC.ref_from_sig(ggc['signature'])}) found.")
+
+        if 'ref' in ggc and ggc['ref'] in GPC:
+            if _LOG_DEBUG:
+                _logger.debug(f"gGC is already in the Gene Pool.")
+            ggcs.append(GPC[ggc['ref']])
+        else:
+            ggc = _gGC(ggc, modified, population_uid, sv)
+            GPC[ggc['ref']] = ggc
+            ggcs.append(ggc)
+
+    # Callable creation.
+    # This is done after addition to the GPC to ensure all definitions are available.
+    for ggc in ggcs:
+        ggc['exec'] = create_callable(ggc, GPC)
+
+    # Sanity
+    if _LOG_DEBUG:
+        refs = {ggc['ref'] for ggc in ggcs}
+        for ggc in ggcs:
+            for ref_check in ('gca_ref', 'gcb_ref', 'pgc_ref'):
+                if ggc.get(ref_check, None) is not None:
+                    if not (ggc[ref_check] in refs or ggc[ref_check] in GPC):
+                        assert False, f"GC {ggc['ref']}'s {ref_check} ({ggc[ref_check]}) does not exist!"
+
+    return ggcs
 
 set_next_reference = _GC.set_next_reference
 
@@ -83,9 +122,7 @@ class _gGC(_GC):
 
         self['num_inputs'] = len(self['inputs'])
         self['num_outputs'] = len(self['outputs'])
-
-        # Every GC must have the callable created
-        self.setdefault('exec', create_callable(self))
+        self['exec'] = None
 
         for col in filter(lambda x: x[1:] in gc.keys(), _gGC.higher_layer_cols):
             gc[col] = copy(gc[col[1:]])

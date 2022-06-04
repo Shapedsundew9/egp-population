@@ -18,6 +18,11 @@
     "igraph": {
         "type": "BYTEA"
     },
+    "lc": {
+        "nullable": true,
+        "type": "SMALLINT",
+        "description": "The line count of the callable."
+    },
     "offspring_count": {
         "default": "0",
         "type": "INTEGER"
@@ -36,6 +41,10 @@
         "nullable": true,
         "type": "REAL[16]"
     },
+    "pgc_ref": {
+        "nullable": true,
+        "type": "BIGINT"
+    },
     "population_uid": {
         "description": "TODO: Population will be defined by reference (as class will be).",
         "nullable": true,
@@ -43,10 +52,6 @@
     },
     "ref": {
         "primary_key": true,
-        "type": "BIGINT"
-    },
-    "pgc_ref": {
-        "nullable": true,
         "type": "BIGINT"
     },
     "survivability": {

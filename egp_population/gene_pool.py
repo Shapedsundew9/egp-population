@@ -417,8 +417,7 @@ class gene_pool(genetic_material_store):
             if refs:
                 size = population['size']
                 selection = choice(refs, size, False, weights) if weights_sum > 0.0 and len(refs) < size else refs
-                for gc in self._pool.recursive_select(_REF_SQL, {'matches': selection}):
-                    gGC(gc)
+                gGC(self._pool.recursive_select(_REF_SQL, {'matches': selection}))
             else:
                 raise ValueError("No matching population individual GC's found in Gene Pool. Something is badly wrong!")
 
@@ -426,16 +425,12 @@ class gene_pool(genetic_material_store):
         #   1. Fitness only (where fitness is the effect on survivability of the target population)
         #   2. Survivability / Interestingness
         #   3. A bias knob between 1 & 2
-        for gc in self._gl.select('WHERE {signature} = {sig}', {'sig': RANDOM_PGC_SIGNATURE}):
-            gGC(gc)
+        gGC(self._gl.select('WHERE {signature} = {sig}', {'sig': RANDOM_PGC_SIGNATURE}))
         literals = deepcopy(_PGC_DEFINITION)
         literals['exclusions'] = [0]
         for layer in range(NUM_PGC_LAYERS):
             literals['layer'] = layer + 1  # postgresql array indexing starts at 1!
-            pgcs = tuple(self._pool.select(_RELOAD_PGC_SQL, literals))
-            literals['exclusions'].extend((pgc['ref'] for pgc in pgcs))
-            for gc in pgcs:
-                gGC(gc)
+            literals['exclusions'].extend((pgc['ref'] for pgc in gGC(self._pool.select(_RELOAD_PGC_SQL, literals))))
 
     def _exit_criteria(self):
         """Are we done?"""
@@ -703,7 +698,7 @@ class gene_pool(genetic_material_store):
         # selected is a list of ref or signature. refs (ints) are from the Gene Pool.
         # For those selected from the GP pull them into the GPC as individuals of this population
         from_gp = [uid for uid in filter(lambda x: isinstance(x, int), selected)]
-        tuple(gGC(gc, population_uid=population_uid) for gc in self._pool.recursive_select(_REF_SQL, {'matches': from_gp}))
+        gGC(self._pool.recursive_select(_REF_SQL, {'matches': from_gp}), population_uid=population_uid)
 
         # Pull those with signatures in from the Genomic Library
         from_gl = [uid for uid in filter(lambda x: not isinstance(x, int), selected)]
@@ -713,7 +708,6 @@ class gene_pool(genetic_material_store):
         # This may require pulling new agc's from the genomic library through steady state exceptions
         # in the stabilise() in which case we need to pull in all dependents not already in the
         # gene pool.
-        ggcs = []
         num_to_create = num - len(matches)
         _logger.info(f'{num_to_create} GGCs to create.')
         for _ in range(num_to_create):
@@ -729,9 +723,9 @@ class gene_pool(genetic_material_store):
                     raise ValueError(f'Failed to create eGC with inputs = {inputs} and outputs'
                                      f' = {outputs} {retry_count} times in a row.')
 
-            ggcs.append(gGC(rgc, population_uid=population_uid))
-            ggcs.extend((gGC(gc) for gc in fgc_dict.values()))
-        _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in ggcs]}')
+            rgc['population_uid'] = population_uid
+            gGC((rgc, *fgc_dict.values()))
+            _logger.debug(f'Created GGCs to add to Gene Pool: {[ggc["ref"] for ggc in (rgc, *fgc_dict.values())]}')
         self.push_to_gp()
 
         # Make an initial assessment of fitness
@@ -782,11 +776,11 @@ class gene_pool(genetic_material_store):
         if _LOG_DEBUG:
             _logger.debug(f'Recursively pulling {signatures} into Gene Pool population {population_uid}.')
         gcs = tuple(self._gl.recursive_select(_SIGNATURE_SQL, {'matches': signatures}, _GL_COLUMNS))
-        ggcs = tuple(gGC(gc, population_uid=population_uid) for gc in gcs if gc['signature'] in signatures)
+        ggcs = gGC([gc for gc in gcs if gc['signature'] in signatures], population_uid=population_uid)
         self._gl.hl_copy(ggcs)
         if _LOG_DEBUG:
             _logger.debug("Adding sub-GC's")
-        ggcs = tuple(gGC(gc) for gc in gcs if gc['signature'] not in signatures)
+        ggcs = gGC((gc for gc in gcs if gc['signature'] not in signatures))
         self._gl.hl_copy(ggcs)
 
     def push_to_gp(self):
@@ -828,6 +822,7 @@ class gene_pool(genetic_material_store):
         ----
         refs(iterable(int)): GC 'ref' values to delete.
         """
+        # TODO: Does this get rid of orphaned sub-GC's & otherwise unused pGC's?
         refs = self.remove_nodes(refs)
         _logger.info(f'Removing {len(refs)} GCs from GP local cache.')
         for ref in refs:
