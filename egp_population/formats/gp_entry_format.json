@@ -7,7 +7,12 @@
         "nullable": true,
         "type": "integer"
     },
-    "exec":{
+    "cb":{
+        "nullable": true,
+        "type": "string"
+    },
+    "callable":{
+        "nullable": true
     },
     "fitness": {
         "nullable": true,

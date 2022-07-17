@@ -17,7 +17,7 @@ from egp_physics.gc_type import eGC, interface_definition, NUM_PGC_LAYERS, is_pg
 from egp_physics.physics import stablize, population_GC_evolvability, pGC_fitness, select_pGC, RANDOM_PGC_SIGNATURE
 from egp_physics.physics import population_GC_inherit
 from egp_physics.gc_graph import gc_graph
-from egp_physics.execution import set_gms
+from egp_physics.execution import set_gms, create_callable
 from .gene_pool_cache import gene_pool_cache, SP_UID_LOWER_LIMIT, SP_UID_UPPER_LIMIT
 from .gGC import gGC, set_GPC, set_next_reference
 from time import time, sleep
@@ -41,6 +41,10 @@ _LOG_WARN = _logger.isEnabledFor(WARN)
 _LOG_ERROR = _logger.isEnabledFor(ERROR)
 _LOG_FATAL = _logger.isEnabledFor(FATAL)
 
+# TODO: Put somewhere common
+_OVER_MAX = 1 << 64
+_MASK = _OVER_MAX - 1
+ref_str = lambda x: f"{(_OVER_MAX + x) & _MASK:016x}"
 
 def _MODIFIED_FUNC(x): return x['modified']
 
@@ -731,7 +735,9 @@ class gene_pool(genetic_material_store):
         # Make an initial assessment of fitness
         characterize = self._population_data[population_uid]['characterize']
         for individual in self.individuals(population_uid):
+            individual['exec'] = create_callable(individual, self.pool)
             individual['fitness'], individual['survivability'] = characterize(individual)
+            del individual['exec']
 
         # Populate pGC's
         # FIXME: Better ways to do this in the future.
@@ -998,12 +1004,22 @@ class gene_pool(genetic_material_store):
                 _logger.debug(f'Individual ({count + 1}/{len(selection)}): {individual}')
                 _logger.debug(f"Mutating with pGC {pgc['ref']}")
 
-            offspring = pgc['exec']((individual,))[0]
+            wrapped_pgc_exec = create_callable(pgc, self.pool)
+            result = wrapped_pgc_exec((individual,))
+            if result is None:
+                # pGC went pop - should not happen very often
+                _logger.warning(f"pGC {ref_str(pgc['ref'])} threw an exception when called.")
+                offspring = None
+            else:
+                offspring = result[0]
+
             if _LOG_DEBUG:
                 _logger.debug(f'Offspring ({count + 1}/{len(selection)}): {offspring}')
 
             if offspring is not None and self.viable_individual(offspring, population_oih):
+                offspring['exec'] = create_callable(offspring, self.pool)
                 new_fitness, survivability = characterize(offspring)
+                del offspring['exec']
                 offspring['fitness'] = new_fitness
                 offspring['survivability'] = survivability
                 population_GC_inherit(offspring, individual, pgc)

@@ -5,7 +5,7 @@ from copy import copy
 from egp_physics.gc_type import _GC, interface_definition, is_pgc, _GL_EXCLUDE_COLUMNS, NUM_PGC_LAYERS
 from .gp_entry_validator import gp_entry_validator
 from egp_physics.gc_graph import gc_graph
-from egp_physics.execution import create_callable, remove_callable
+from egp_physics.execution import remove_callable
 from egp_physics.ep_type import vtype
 
 
@@ -36,7 +36,7 @@ def gGC(gcs=tuple(), modified=True, population_uid=None, sv=True):
         3. Do GCA &| GCB exist in the cache. NOT IMPLEMENTED.
 
     Optimisations
-        1. Consolidate executable code to reduce the size of the call graph. NOT IMPLEMENTED.
+        1. Consolidate executable code to reduce the size of the call graph. IN PROGRESS.
         2. Identify duplicates. NOT IMPLEMENTED. TODO: Dupes should reduce probability of creation of another dupe.
         3. Alias allotropes. NOT IMPLEMENTED.
     """
@@ -53,11 +53,6 @@ def gGC(gcs=tuple(), modified=True, population_uid=None, sv=True):
             ggc = _gGC(ggc, modified, population_uid, sv)
             GPC[ggc['ref']] = ggc
             ggcs.append(ggc)
-
-    # Callable creation.
-    # This is done after addition to the GPC to ensure all definitions are available.
-    for ggc in ggcs:
-        ggc['exec'] = create_callable(ggc, GPC)
 
     # Sanity
     if _LOG_DEBUG:
@@ -103,6 +98,7 @@ class _gGC(_GC):
             _logger.debug(f"GP cache now has {len(GPC)} entries.")
         self['modified'] = modified
         self.setdefault('ac_count', 1)
+        self.setdefault('cb')
 
         # FIXME: Not needed if ref is a function of population_uid.
         self.setdefault('population_uid', population_uid)
@@ -122,7 +118,7 @@ class _gGC(_GC):
 
         self['num_inputs'] = len(self['inputs'])
         self['num_outputs'] = len(self['outputs'])
-        self['exec'] = None
+        self['callable'] = None
 
         for col in filter(lambda x: x[1:] in gc.keys(), _gGC.higher_layer_cols):
             gc[col] = copy(gc[col[1:]])
