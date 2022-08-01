@@ -58,7 +58,7 @@ def gGC(gcs=tuple(), modified=True, population_uid=None, sv=True):
     if _LOG_DEBUG:
         refs = {ggc['ref'] for ggc in ggcs}
         for ggc in ggcs:
-            for ref_check in ('gca_ref', 'gcb_ref', 'pgc_ref'):
+            for ref_check in ('gca_ref', 'gcb_ref', 'pgc_ref', 'ancestor_a_ref', 'ancestor_b_ref'):
                 if ggc.get(ref_check, None) is not None:
                     if not (ggc[ref_check] in refs or ggc[ref_check] in GPC):
                         assert False, f"GC {ggc['ref']}'s {ref_check} ({ggc[ref_check]}) does not exist!"
