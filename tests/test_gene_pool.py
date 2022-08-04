@@ -28,6 +28,7 @@ for table in _GP_CONFIG:
     _GP_CONFIG[table]['delete_table'] = True
     _GP_CONFIG[table]['database']['dbname'] = 'test_db'
 
+
 # Divide! Characterization function
 _X1_TEST = randint(-100,100,(100,),dtype=int32).astype(float32)
 _X2_TEST = randint(-100,100,(100,),dtype=int32).astype(float32)
