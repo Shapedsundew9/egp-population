@@ -109,6 +109,9 @@ class _gGC(_GC):
         self.setdefault('gcb_ref', self.field_reference('gcb'))
         self.setdefault('igraph', gc_graph(self['graph']))
         self.setdefault('generation', 0)
+        self.setdefault('sms_ref', None)
+        self.setdefault('effective_pgc_refs', [])
+        self.setdefault('effective_pgc_fitness', [])
         self.setdefault('offspring_count', 0)
         if 'inputs' not in self:
             inputs = self['igraph'].input_if()
@@ -125,8 +128,6 @@ class _gGC(_GC):
 
         # PGCs have special fields in the Gene Pool
         if is_pgc(self) and 'pgc_f_valid' not in self:
-            self['pgc_delta_fitness'] = [0.0] * NUM_PGC_LAYERS
-            self['pgc_previous_fitness'] = copy(self['pgc_fitness'])
             self['pgc_f_valid'] = [f > 0.0 for f in self['pgc_fitness']]
         else:
             self.setdefault('fitness', 0.0)

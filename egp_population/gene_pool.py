@@ -8,7 +8,7 @@ from json import load, loads, dumps
 from random import random
 from numpy.core.fromnumeric import mean
 from numpy.random import choice
-from numpy import array, float32, sum, count_nonzero, where, finfo, histogram
+from numpy import array, float32, sum, count_nonzero, where, finfo, histogram, isfinite, concatenate, argsort, logical_and
 from egp_genomic_library.genetic_material_store import genetic_material_store, GMS_TABLE_SCHEMA
 from egp_genomic_library.conversions import compress_json, decompress_json, memoryview_to_bytes
 from egp_genomic_library.genomic_library import UPDATE_STR, UPDATE_RETURNING_COLS, sql_functions, HIGHER_LAYER_COLS, _GL_TABLE_SCHEMA
@@ -30,6 +30,7 @@ from pypgtable import table, db_disconnect_all
 from .gp_entry_validator import gp_entry_validator, merge
 from itertools import count
 from .utils.reference import random_reference
+from functools import partial
 
 
 _logger = getLogger(__name__)
@@ -244,6 +245,25 @@ def _reference(**kwargs):
     """
     # FIXME: Needs to become context aware e.g. population_uid etc.
     return next(_counter)
+
+
+def _characterization_wrapper(gc, characterize):
+    """Wrap characterize() to manage out of bounds results.
+    
+    Args
+    ----
+    characterize (callable()): The characterization for the population
+
+    Returns
+    -------
+    tuple(float, float): Fitness, Survivability both in the range 0.0 <= x <= 1.0 or None   
+    """
+    values = characterize(gc)
+    for key, value in zip(('Fitness', 'Survivability'), values):
+        assert isfinite(value), f'{key} is {value} but must be finite. Check your characterize().'
+        assert value >= 0.0, f'{key} is {value} but must be >= 0.0. Check your characterize().'
+        assert value <= 1.0, f'{key} is {value} but must be <= 1.0. Check your characterize().'
+    return values
 
 
 class gene_pool(genetic_material_store):
@@ -592,7 +612,7 @@ class gene_pool(genetic_material_store):
         data['worker_id'] = self.worker_id
         data = next(self._populations_table.insert((data,), '*'))
         data['vt'] = vtype.EP_TYPE_STR
-        data['characterize'] = config['characterize']
+        data['characterize'] = partial(_characterization_wrapper, characterize=config['characterize'])
         data['recharacterize'] = config['recharacterize']
 
         # If this worker created the entry then populate the gene pool.
@@ -922,20 +942,34 @@ class gene_pool(genetic_material_store):
         -------
         list(int): Refs of selected individuals.
         """
-        refs = tuple(gc['ref'] for gc in self.pool.values() if gc['population_uid'] == population_uid)
+        refs = array(tuple(gc['ref'] for gc in self.pool.values() if gc['population_uid'] == population_uid))
         population_size = self._population_data[population_uid]['size']
+        min_survivability = finfo(float32).tiny * population_size
         assert len(refs) >= population_size, (f'Population {population_uid} only has {len(refs)}'
                                               f' individuals which is less than the population size of {population_size}!')
         survivability = array(tuple(gc['survivability'] for gc in self.pool.values()
                                     if gc['population_uid'] == population_uid), dtype=float32)
-        survivors = count_nonzero(survivability)
+        underflow_risk = survivability[logical_and(survivability < min_survivability, survivability != 0.0)]
+        if any(underflow_risk):
+            _logger.warning(f'{underflow_risk.sum()} survivability values risk underflow. \
+                Risk free non-zero minimum is {min_survivability}')
+            survivability[underflow_risk] = min_survivability
+        num_survivors = count_nonzero(survivability)
 
-        # If there are less survivors than the population size give the dead a miniscule chance of
-        # being selected. They are unlikely to be chosen ahead of any survivors but will make up the numbers.
-        if survivors < population_size:
-            survivability = where(survivability > 0.0, survivability, finfo(float32).tiny)
-        weights = survivability / survivability.sum()
-        return choice(refs, population_size, False, weights)
+        # There were no survivors.
+        # Return a random selection.
+        if not num_survivors:
+            return choice(refs, population_size, False)
+
+        # If there are less survivors than the population size return all survivors
+        # and some randomly chosen dead
+        if num_survivors < population_size:
+            survivors = refs[survivability > 0.0]
+            dead = choice(refs[survivability == 0.0], population_size - num_survivors, False)
+            return concatenate((survivors, dead))
+        
+        # Otherwise pick the most likely to survive
+        return refs[argsort(survivability)[:-population_size]]
 
     def viable_individual(self, individual, population_oih):
         """Check if the individual is viable as a member of the population.
@@ -991,17 +1025,14 @@ class gene_pool(genetic_material_store):
         active = self._active_population_selection(population_uid)
         population_oih = self._population_data[population_uid]['oih']
 
-        # TODO: Need a better data structure
-        pgcs = tuple(gc for gc in self.pool.values() if is_pgc(gc))
         if _LOG_DEBUG:
-            _logger.debug(f'{len(pgcs)} pGCs in the local GP cache.')
             _logger.debug(f'Evolving population {population_uid}')
 
-        selection = [(individual_ref, select_pGC(pgcs, individual_ref, 0)) for individual_ref in active]
-        for count, (individual_ref, pgc) in enumerate(selection):
+        pgcs = select_pGC(self, active)
+        for count, (individual_ref, pgc) in enumerate(zip(active, pgcs)):
             individual = self.pool[individual_ref]
             if _LOG_DEBUG:
-                _logger.debug(f'Individual ({count + 1}/{len(selection)}): {individual}')
+                _logger.debug(f'Individual ({count + 1}/{len(pgcs)}): {individual}')
                 _logger.debug(f"Mutating with pGC {pgc['ref']}")
 
             wrapped_pgc_exec = create_callable(pgc, self.pool)
@@ -1014,7 +1045,7 @@ class gene_pool(genetic_material_store):
                 offspring = result[0]
 
             if _LOG_DEBUG:
-                _logger.debug(f'Offspring ({count + 1}/{len(selection)}): {offspring}')
+                _logger.debug(f'Offspring ({count + 1}/{len(pgcs)}): {offspring}')
 
             if offspring is not None and self.viable_individual(offspring, population_oih):
                 offspring['exec'] = create_callable(offspring, self.pool)
@@ -1027,7 +1058,7 @@ class gene_pool(genetic_material_store):
                 population_GC_evolvability(individual, delta_fitness)
             else:
                 # PGC did not produce an offspring.
-                delta_fitness = -individual['fitness']
+                delta_fitness = -1.0
             pgc_evolutions = pGC_fitness(self, pgc, delta_fitness)
 
         # Update survivabilities as the population has changed
