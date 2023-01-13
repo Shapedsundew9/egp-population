@@ -3,8 +3,12 @@
         "type": "SERIAL",
         "description": "Integer UID of the population."
     },
+    "fitness_hash": {
+        "type": "BYTEA[32]",
+        "description": "SHA256 of the fitness function & data hashes."
+    },
     "worker_id": {
-        "type": "BIGINT",
+        "type": "UUID",
         "description": "The ID of the worker that created the population."
     },
     "size":  {

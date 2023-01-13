@@ -92,9 +92,6 @@ _PTR_MAP = {
     _REL: _NL
 }
 
-_GP_TABLE_SCHEMA = deepcopy(GMS_TABLE_SCHEMA)
-with open(join(dirname(__file__), "formats/gp_table_format.json"), "r") as file_ptr:
-    merge(_GP_TABLE_SCHEMA, load(file_ptr))
 with open(join(dirname(__file__), "formats/gp_spuid_table_format.json"), "r") as file_ptr:
     _GP_SPUID_TABLE_SCHEMA = load(file_ptr)
 with open(join(dirname(__file__), "formats/gpp_table_format.json"), "r") as file_ptr:
