@@ -8,6 +8,7 @@ from pypgtable.typing import TableSchema, Conversions, TableConfig
 from json import load, loads, dumps
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger, Logger
 from .typing import Populations, Population
+from typing import Literal
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
@@ -17,6 +18,13 @@ _LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
 _LAST_OWNER_ID_QUERY_SQL: str = 'WHERE uid = {uid}'
 _LAST_OWNER_ID_UPDATE_SQL: str = "{last_owner_id} = (({last_owner_id}::BIGINT + 1::BIGINT) & x'7FFFFFFF::BIGINT)::INTEGER')"
 
+_POPULATION_IN_DEFINITION: Literal[-1] = -1
+_MAX_INITIAL_LIST: Literal[100000] = 100000
+_MIN_PGC_LAYER_SIZE: Literal[100] = 100
+_MAX_PGC_LAYER_SIZE: Literal[10000] = 10000
+_MINIMUM_SUBPROCESS_TIME: Literal[60] = 60
+_MINIMUM_AVAILABLE_MEMORY: Literal[134217728] = 128 * 1024 * 1024
+_MAX_POPULATION_SIZE: Literal[100000] = 100000
 
 
 with open(join(dirname(__file__), "formats/population_table_format.json"), "r") as file_ptr:
