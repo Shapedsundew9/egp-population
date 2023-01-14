@@ -3,7 +3,7 @@
         "type": "SERIAL",
         "description": "Integer UID of the population."
     },
-    "fitness_hash": {
+    "fitness_function_hash": {
         "type": "BYTEA[32]",
         "description": "SHA256 of the fitness function & data hashes."
     },
@@ -42,7 +42,7 @@
         "type": "VARCHAR",
         "description": "User defined arbitary field."
     },
-    "created": {
+   "created": {
         "default": "(NOW() AT TIME ZONE 'UTC')",
         "type": "TIMESTAMP",
         "description": "The time at which the population entry was created."

@@ -2,5 +2,9 @@
     "next_spuid": {
         "default": "0",
         "type": "INTEGER"
-    }
+    },
+    "next_population_uid": {
+        "default": "0",
+        "type": "INTEGER"
+    }    
 }
