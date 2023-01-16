@@ -3,7 +3,7 @@
 from logging import DEBUG, NullHandler, getLogger
 from copy import copy
 from egp_physics.gc_type import _GC, interface_definition, is_pgc, _GL_EXCLUDE_COLUMNS, NUM_PGC_LAYERS
-from .gp_entry_validator import gp_entry_validator
+from .population_validator import gp_entry_validator
 from egp_physics.gc_graph import gc_graph
 from egp_physics.execution import remove_callable
 from egp_physics.ep_type import vtype

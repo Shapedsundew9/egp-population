@@ -1,0 +1,125 @@
+{
+    "uid": {
+        "type": "integer",
+        "min": 0,
+        "max": 32767,
+        "meta": {
+            "description": "Population UID is assigned by the Gene Pool if it does not already exist."
+        }
+    },
+    "worker_id": {
+        "type": "uuid",
+        "meta": {
+            "description": "The worker that created this population."
+        }
+    },
+    "size": {
+        "type": "integer",
+        "min": 1,
+        "max": 2147483647,
+        "required": true,
+        "meta": {
+            "description": "The size of the population to be created / evolved in an epoch. Usually this would be 100's may be 10's, maybe 1000's."
+        }
+    },
+    "inputs": {
+        "type": "list",
+        "required": true,
+        "minlength": 0,
+        "maxlength": 256,
+        "schema": {
+            "type": ["string", "integer", "callable"],
+            "min": 1,
+            "max": 256,
+            "check_with": "valid_ep_type"
+        },
+        "meta": {
+            "description": "Input interface of every individual in the population."
+        }
+    },
+    "outputs": {
+        "type": "list",
+        "required": true,
+        "minlength": 0,
+        "maxlength": 256,
+        "schema": {
+            "type": "string",
+            "min": 1,
+            "max": 256,
+            "check_with": "valid_ep_type"
+        },
+        "meta": {
+            "description": "Output interface of every individual in the population."
+        }
+    },
+    "fitness_function": { 
+        "type": "callable",
+        "required": true,
+        "meta": {
+            "description": "Function to characterize the fitness of an individual Callable[[xGC], float]."
+        }
+    },
+    "survivability_function": { 
+        "type": "callable",
+        "required": true,
+        "meta": {
+            "description": "Function to determine the survivability of all individuals in a population Callable[[Iterable[xGC]], list[float] | tuple[float]]."
+        }
+    },
+    "ordered_interface_hash": {
+        "type": "integer",
+        "min": -9223372036854775808,
+        "max": 9223372036854775807,
+        "readonly": true,
+        "default_setter": "set_oih"
+    },
+    "name": {
+        "type": "string",
+        "regex": "[A-Za-z_][\\w]{0, 63}",
+        "minlength": 1,
+        "maxlength": 64,
+        "required": true,
+        "meta": {
+            "description": "User defined name for the population. Not required to be unique but sensible if it is."
+        }
+    },
+    "description":{
+        "type": "string",
+        "regex": "[ -~]{0, 16384}",
+        "minlength": 0,
+        "maxlength": 16384,
+        "nullable": true,
+        "default": null,
+        "meta": {
+            "description": "User defined arbitary string."
+        }
+    },
+    "meta_data":{
+        "type": "string",
+        "regex": "[ -~]{0, 16384}",
+        "minlength": 0,
+        "maxlength": 16384,
+        "nullable": true,
+        "default": null,
+        "meta": {
+            "description": "User defined arbitary string."
+        }
+    },
+    "created": {
+        "meta": {
+            "description": "The UTC date and time of the populations definition creation."
+        },
+        "type": "datetime",
+        "readonly": true
+    },
+    "vt": {
+        "type": "integer",
+        "min": 0,
+        "max": 4,
+        "default": 1,
+        "meta": {
+            "description": "The EP type type used to define the inputs and outputs. Default = 1 = EP_TYPE_STR."
+        }
+    }
+
+}

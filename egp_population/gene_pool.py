@@ -27,7 +27,7 @@ from psutil import virtual_memory
 from gc import enable, disable, collect, freeze, unfreeze
 from signal import signal, SIGUSR1
 from pypgtable import table, db_disconnect_all
-from .gp_entry_validator import gp_entry_validator, merge
+from .population_validator import gp_entry_validator, merge
 from itertools import count
 from .utils.reference import random_reference
 from functools import partial

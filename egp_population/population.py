@@ -190,3 +190,47 @@ class population():
         self._population_data[population_uid]['characterize'] = characterize
         self._population_data[population_uid]['recharacterize'] = recharacterize
 
+    def _new_population(self, population: PopulationNorm, num: int) -> None:
+        """Fetch or create num target GC's & recursively pull in the pGC's that made them.
+
+        Construct a population with inputs and outputs as defined by inputs, outputs & vt.
+        Inputs & outputs define the GC's interface.
+
+        There are 2 sources of valid individuals: The higher layer (GL in this case) or to
+        create them.
+        FIXME: Add pull from higher layer (recursively).
+        FIXME: Implement forever work.
+
+        Args
+        ----
+        population: Population definition.
+        num: The number of GC's to create
+        vt: See vtype definition.
+        """
+        # Check the population index exists
+        _logger.info(f"Adding {num} GC's to population index: {population['uid']}.")
+
+        # If there was not enough fill the whole population create some new gGC's & mark them as individuals too.
+        # This may require pulling new agc's from the genomic library through steady state exceptions
+        # in the stabilise() in which case we need to pull in all dependents not already in the
+        # gene pool.
+        _logger.info(f'{num} GGCs to create.')
+        for _ in range(num):
+            egc: eGC = eGC(inputs=population['inputs'], outputs=population['outputs'], vt=vtype.EP_TYPE_STR)
+            rgc, fgc_dict = stablize(self._gl, egc)
+
+            # Just in case it is trickier than expected.
+            retry_count: int = 0
+            while rgc is None:
+                _logger.info('eGC random creation failed. Retrying...')
+                retry_count += 1
+                egc = eGC(inputs=population['inputs'], outputs=population['outputs'], vt=vtype.EP_TYPE_STR)
+                rgc, fgc_dict = stablize(self._gl, egc)
+                if retry_count == 3:
+                    raise ValueError(f"Failed to create eGC with inputs = {population['inputs']} and outputs"
+                                     f" = {population['outputs']} {retry_count} times in a row.")
+
+            rgc['population_uid'] = population['uid']
+            self.pool[rgc['ref']] = rgc
+            self.pool.update(fgc_dict)
+            _logger.debug(f'Created GGCs to add to Gene Pool: {[ref_str(ggc["ref"]) for ggc in (rgc, *fgc_dict.values())]}')cd ../egp   
