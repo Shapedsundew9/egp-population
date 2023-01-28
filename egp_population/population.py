@@ -72,7 +72,7 @@ _DEFAULT_POPULATION_METRICS_CONFIG: TableConfig = {
 
 class population():
 
-    def __init(self) -> None:
+    def __init__(self) -> None:
         self._owner_counters: dict[int, count] = {}
         self.reference_function: partial[int] = partial(reference, counters=self._owner_counters)
         self.owner_id: int = self.next_owner_id()
