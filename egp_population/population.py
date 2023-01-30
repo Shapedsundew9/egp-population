@@ -50,15 +50,6 @@ _DEFAULT_POPULATIONS_CONFIG: TableConfig = {
     'create_db': True,
     'conversions': _POPULATIONS_CONVERSIONS
 }
-_DEFAULT_GP_SPUID_CONFIG: TableConfig = {
-    'database': {
-        'dbname': 'erasmus'
-    },
-    'table': 'gene_pool_spuid',
-    'schema': _SPUID_TABLE_SCHEMA,
-    'create_table': True,
-    'create_db': True,
-}
 _DEFAULT_POPULATION_METRICS_CONFIG: TableConfig = {
     'database': {
         'dbname': 'erasmus'
@@ -73,21 +64,8 @@ _DEFAULT_POPULATION_METRICS_CONFIG: TableConfig = {
 class population():
 
     def __init__(self) -> None:
-        self._owner_counters: dict[int, count] = {}
-        self.reference_function: partial[int] = partial(reference, counters=self._owner_counters)
-        self.owner_id: int = self.next_owner_id()
-        self._next_reference: partial[int] = partial(self.reference_function, owner=self.owner_id)
         self._populations_table: table = table(_DEFAULT_POPULATIONS_CONFIG)
         _logger.info('Population(s) established.')
-
-    def next_owner_id(self) -> int:
-        """Get the next available owner UID."""
-        return next(self._populations_table.update(_LAST_OWNER_ID_UPDATE_SQL, _LAST_OWNER_ID_QUERY_SQL,
-            returning=('last_owner_id',), container='tuple'))[0]
-
-    def purge_owner_counters(self) -> None:
-        """When the owners no longer exist clean up the counters"""
-        self._owner_counters = {}
 
     def create_population(self, config:Dict = {}) -> Dict[str, Any]:
         """Create a population in the gene pool.
