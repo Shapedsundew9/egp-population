@@ -6,7 +6,7 @@ from egp_types.xGC import xGC
 from egp_types.ep_type import vtype
 
 
-class Population(TypedDict):
+class PopulationConfig(TypedDict):
     uid: NotRequired[int]
     worker_id: NotRequired[UUID]
     size: int
@@ -21,7 +21,7 @@ class Population(TypedDict):
     vt: NotRequired[vtype]
 
 
-class PopulationNorm(TypedDict):
+class PopulationConfigNorm(TypedDict):
     uid: int
     worker_id: UUID
     fitness_function_hash: bytes
@@ -38,5 +38,5 @@ class PopulationNorm(TypedDict):
     vt: vtype
 
 
-Populations = dict[str, Population]
-PopulationsNorm = dict[str, PopulationNorm]
+PopulationsConfig = list[PopulationConfig]
+PopulationsConfigNorm = list[PopulationConfigNorm]

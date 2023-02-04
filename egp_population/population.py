@@ -4,19 +4,20 @@ from copy import deepcopy
 from functools import partial
 from os.path import dirname, join
 from pypgtable import table
-from pypgtable.typing import TableSchema, Conversions, TableConfig
+from pypgtable.typing import TableSchema, Conversions, TableConfigNorm, TableConfig
+from pypgtable.validators import raw_table_config_validator
 from json import load, loads, dumps
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger, Logger
-from .typing import Populations, Population
+from .typing import PopulationsConfig, PopulationsConfigNorm, PopulationConfig, PopulationConfigNorm
 from typing import Literal
+from .population_validator import population_entry_validator
+
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
 # TODO: Add a _LOG_CONSISTENCY which additionally does consistency checking
 _LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
 
-_LAST_OWNER_ID_QUERY_SQL: str = 'WHERE uid = {uid}'
-_LAST_OWNER_ID_UPDATE_SQL: str = "{last_owner_id} = (({last_owner_id}::BIGINT + 1::BIGINT) & x'7FFFFFFF::BIGINT)::INTEGER')"
 
 _POPULATION_IN_DEFINITION: Literal[-1] = -1
 _MAX_INITIAL_LIST: Literal[100000] = 100000
@@ -31,8 +32,7 @@ with open(join(dirname(__file__), "formats/population_table_format.json"), "r") 
     _POPULATION_TABLE_SCHEMA: TableSchema = load(file_ptr)
 with open(join(dirname(__file__), "formats/population_metrics_table_format.json"), "r") as file_ptr:
     _POPULATION_METRICS_TABLE_SCHEMA: TableSchema = load(file_ptr)
-with open(join(dirname(__file__), "formats/spuid_table_format.json"), "r") as file_ptr:
-    _SPUID_TABLE_SCHEMA: TableSchema = load(file_ptr)
+
 
 _POPULATIONS_CONVERSIONS: Conversions = (
     ('inputs', dumps, loads),
@@ -40,7 +40,7 @@ _POPULATIONS_CONVERSIONS: Conversions = (
 )
 
 
-_DEFAULT_POPULATIONS_CONFIG: TableConfig = {
+_DEFAULT_POPULATIONS_CONFIG: TableConfigNorm = raw_table_config_validator.normalized({
     'database': {
         'dbname': 'erasmus'
     },
@@ -49,8 +49,9 @@ _DEFAULT_POPULATIONS_CONFIG: TableConfig = {
     'create_table': True,
     'create_db': True,
     'conversions': _POPULATIONS_CONVERSIONS
-}
-_DEFAULT_POPULATION_METRICS_CONFIG: TableConfig = {
+})
+
+_DEFAULT_POPULATION_METRICS_CONFIG: TableConfigNorm = raw_table_config_validator.normalized({
     'database': {
         'dbname': 'erasmus'
     },
@@ -58,13 +59,16 @@ _DEFAULT_POPULATION_METRICS_CONFIG: TableConfig = {
     'schema': _POPULATION_METRICS_TABLE_SCHEMA,
     'create_table': True,
     'create_db': True,
-}
+})
 
 
 class population():
 
-    def __init__(self) -> None:
-        self._populations_table: table = table(_DEFAULT_POPULATIONS_CONFIG)
+    def __init__(self, populations_config: PopulationsConfig | PopulationsConfigNorm,
+        table_config: TableConfig | TableConfigNorm = _DEFAULT_POPULATIONS_CONFIG) -> None:
+        
+        self.table: table = table(raw_table_config_validator.normalized(table_config))
+        self.configs: dict[int, PopulationConfigNorm] = {p['uid']: population_entry_validator.normalized(p) for p in populations_config}
         _logger.info('Population(s) established.')
 
     def create_population(self, config:Dict = {}) -> Dict[str, Any]:

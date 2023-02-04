@@ -1,11 +1,31 @@
 {
     "uid": {
         "type": "SERIAL",
-        "description": "Integer UID of the population."
+        "description": "Integer UID of the population in the Gene Pool."
     },
-    "fitness_function_hash": {
+    "population_hash": {
         "type": "BYTEA[32]",
-        "description": "SHA256 of the fitness function & data hashes."
+        "primary_key": true,
+        "description": "SHA256 of the population configuration settings."
+    },
+    "git_repo_url": {
+        "type": "string",
+        "nullable": true,
+        "description": "The Git repo URL in which to find the fitness function definition."
+    },
+    "git_hash": {
+        "type": "BYTEA[32]",
+        "nullable": true,
+        "description": "SHA256 or SHA1 (in the LSB's) of the git commit to pull."
+    },
+    "git_hash_sha256": {
+        "type": "BOOLEAN",
+        "nullable": true,
+        "description": "True if git_hash is an SHA256. False if git_hash is SHA1."
+    },
+    "verified": {
+        "type": "BOOLEAN",
+        "description": "True if the fitness function has been verified as safe by Erasmus. NB: This is not a guarantee."
     },
     "worker_id": {
         "type": "UUID",
@@ -23,7 +43,7 @@
         "type": "VARCHAR",
         "description": "JSON list of valid EP_TYPE_STRs defining the target individuals outputs."
     },
-    "oih": {
+    "ordered_interface_hash": {
         "type": "BIGINT",
         "description": "The ordered interface hash. Is used to verify all individuals meet the population interface requirements."
     },
@@ -42,9 +62,14 @@
         "type": "VARCHAR",
         "description": "User defined arbitary field."
     },
-   "created": {
+    "created": {
         "default": "(NOW() AT TIME ZONE 'UTC')",
         "type": "TIMESTAMP",
         "description": "The time at which the population entry was created."
+    },
+    "updated": {
+        "default": "(NOW() AT TIME ZONE 'UTC')",
+        "type": "TIMESTAMP",
+        "description": "The UTC date and time user defined fields not used by Erasmus were updated."
     }
 }

@@ -3,12 +3,65 @@
         "type": "integer",
         "min": 0,
         "max": 32767,
+        "readonly": true,
         "meta": {
             "description": "Population UID is assigned by the Gene Pool if it does not already exist."
         }
     },
+    "population_hash": {
+        "type": "binary",
+        "maxlength": 32,
+        "meta": {
+            "description": "A SHA256 of the population config."
+        },
+        "minlength": 32, 
+        "readonly": true,
+        "default_setter": "set_population_hash"
+    },
+    "git_repo_url": {
+        "type": "string",
+        "regex": "(?i)\b((?:https?://|www\\d{0,3}[.]|[a-z0-9.\\-]+[.][a-z]{2,4}/)(?:[^\\s()<>]+|\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\))+(?:\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\)|[^\\s`!()\\[\\]{};:'\".,<>?«»“”‘’]))",
+        "minlength": 8,
+        "meta": {
+            "description": "The Git repo URL in which to find the fitness function definition."
+        },
+        "maxlength": 2048,
+        "nullable": true,
+        "default": null,
+        "check_with": "valid_git_repo_url"
+    },
+    "git_hash": {
+        "type": "binary",
+        "maxlength": 32,
+        "meta": {
+            "description": "SHA256 or SHA1 (in the LSB's) of the git commit to pull."
+        },
+        "minlength": 20, 
+        "nullable": true,
+        "default": null,
+        "check_with": "valid_git_hash"
+    },
+    "git_hash_256": {
+        "type": "boolean",
+        "meta": {
+            "description": "True if git_hash is an SHA256. False if git_hash is SHA1."
+        },
+        "nullable": true,
+        "default": null,
+        "check_with": "valid_git_hash_256"
+    },
+    "verified": {
+        "type": "boolean",
+        "meta": {
+            "description": "True if git_hash is an SHA256. False if git_hash is SHA1."
+        },
+        "nullable": true,
+        "default": null,
+        "check_with": "valid_verified"
+    },
     "worker_id": {
         "type": "uuid",
+        "required": true,
         "meta": {
             "description": "The worker that created this population."
         }
@@ -17,7 +70,7 @@
         "type": "integer",
         "min": 1,
         "max": 2147483647,
-        "required": true,
+        "default": 100,
         "meta": {
             "description": "The size of the population to be created / evolved in an epoch. Usually this would be 100's may be 10's, maybe 1000's."
         }
@@ -28,7 +81,7 @@
         "minlength": 0,
         "maxlength": 256,
         "schema": {
-            "type": ["string", "integer", "callable"],
+            "type": "string",
             "min": 1,
             "max": 256,
             "check_with": "valid_ep_type"
@@ -52,20 +105,6 @@
             "description": "Output interface of every individual in the population."
         }
     },
-    "fitness_function": { 
-        "type": "callable",
-        "required": true,
-        "meta": {
-            "description": "Function to characterize the fitness of an individual Callable[[xGC], float]."
-        }
-    },
-    "survivability_function": { 
-        "type": "callable",
-        "required": true,
-        "meta": {
-            "description": "Function to determine the survivability of all individuals in a population Callable[[Iterable[xGC]], list[float] | tuple[float]]."
-        }
-    },
     "ordered_interface_hash": {
         "type": "integer",
         "min": -9223372036854775808,
@@ -76,11 +115,11 @@
     "name": {
         "type": "string",
         "regex": "[A-Za-z_][\\w]{0, 63}",
-        "minlength": 1,
+        "minlength": 0,
         "maxlength": 64,
-        "required": true,
+        "nullable": true,
         "meta": {
-            "description": "User defined name for the population. Not required to be unique but sensible if it is."
+            "description": "User defined name for the population. Not used by Erasmus."
         }
     },
     "description":{
@@ -91,7 +130,7 @@
         "nullable": true,
         "default": null,
         "meta": {
-            "description": "User defined arbitary string."
+            "description": "User defined arbitary string. Not used by Erasmus."
         }
     },
     "meta_data":{
@@ -102,15 +141,23 @@
         "nullable": true,
         "default": null,
         "meta": {
-            "description": "User defined arbitary string."
+            "description": "User defined arbitary string. Not used by Erasmus."
         }
     },
     "created": {
+        "nullable": true,
         "meta": {
             "description": "The UTC date and time of the populations definition creation."
         },
         "type": "datetime",
         "readonly": true
+    },
+    "updated": {
+        "nullable": true,
+        "meta": {
+            "description": "The UTC date and time user defined fields not used by Erasmus were updated."
+        },
+        "type": "datetime"
     },
     "vt": {
         "type": "integer",
