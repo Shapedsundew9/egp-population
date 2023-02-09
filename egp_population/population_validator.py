@@ -21,6 +21,7 @@ _POPULATION_HASH_FIELDS: tuple[LiteralString, ...] = (
     'name'
 )
 
+
 class _population_entry_validator(base_validator):
 
     def _check_with_valid_type(self, field: str, value: str) -> None:
@@ -29,33 +30,33 @@ class _population_entry_validator(base_validator):
             self._error(field, f'ep_type {value} does not exist with vtype {vt}.')
 
     def _check_with_valid_git_repo_url(self, field: str, value: str | None) -> None:
-        no_repo: bool = value is None
+        no_url: bool = value is None
         no_hash: bool = self.document.get('git_hash', None) is None
-        no_256: bool = self.document.get('git_hash_256', None) is None
-        if not (no_repo == no_hash and no_hash == no_256):
-            self._error(field, "All of 'git_repo_url', 'git_hash' & 'git_hash_256' must be defined or all must be None.")
+        no_repo: bool = self.document.get('git_repo', None) is None
+        if not (no_url == no_hash and no_hash == no_repo):
+            self._error(field, "All of 'git_repo_url', 'git_hash' & 'git_repo' must be defined or all must be None.")
 
-    def _check_with_valid_git_hash_256(self, field: str, value: bool | None) -> None:
-        no_repo: bool = self.document.get('git_hash_256', None) is None
+    def _check_with_valid_git_repo(self, field: str, value: bool | None) -> None:
+        no_url: bool = self.document.get('git_repo', None) is None
         no_hash: bool = self.document.get('git_hash', None) is None
-        no_256: bool = value is None
-        if not (no_repo == no_hash and no_hash == no_256):
-            self._error(field, "All of 'git_repo_url', 'git_hash' & 'git_hash_256' must be defined or all must be None.")
+        no_repo: bool = value is None
+        if not (no_url == no_hash and no_hash == no_repo):
+            self._error(field, "All of 'git_repo_url', 'git_hash' & 'git_repo' must be defined or all must be None.")
 
     def _check_with_valid_git_hash(self, field: str, value: bytes | None) -> None:
-        no_repo: bool = self.document.get('git_repo_url', None) is None
+        no_url: bool = self.document.get('git_repo_url', None) is None
         no_hash: bool = value is None
-        no_256: bool = self.document.get('git_hash_256', None) is None
-        if not (no_repo == no_hash and no_hash == no_256):
-            self._error(field, "All of 'git_repo_url', 'git_hash' & 'git_hash_256' must be defined or all must be None.")
+        no_repo: bool = self.document.get('git_repo', None) is None
+        if not (no_url == no_hash and no_hash == no_repo):
+            self._error(field, "All of 'git_repo_url', 'git_hash' & 'git_repo' must be defined or all must be None.")
         if value is not None and not (len(value) == 32 or len(value) == 20):
             self._error(field, f'The git commit hash must be of length 20 (SHA1) or 32 (SHA256) but was length {len(value)}.')
 
     def _check_with_valid_verified(self, field: str, value: bool | None) -> None:
-        no_repo: bool = self.document.get('git_repo_url', None) is None
+        no_url: bool = self.document.get('git_repo_url', None) is None
         no_hash: bool = self.document.get('git_hash', None) is None
-        no_256: bool = self.document.get('git_hash_256', None) is None
-        if no_repo or no_hash or no_256 and not value is None:
+        no_repo: bool = self.document.get('git_repo', None) is None
+        if no_url or no_hash or no_repo and value is not None:
             self._error(field, "verified cannot be defined if git_* are not defined.")
 
     def _check_with_valid_created(self, field: str, value: datetime) -> None:
@@ -85,10 +86,11 @@ class _population_entry_validator(base_validator):
     def _normalize_default_setter_set_verified(self, document) -> bool | None:
         no_repo: bool = self.document.get('git_repo_url', None) is None
         no_hash: bool = self.document.get('git_hash', None) is None
-        no_256: bool = self.document.get('git_hash_256', None) is None
+        no_256: bool = self.document.get('git_repo', None) is None
         if no_repo or no_hash or no_256:
             return None
         if not no_repo or not no_hash or not no_256:
             return False
+
 
 population_entry_validator: _population_entry_validator = _population_entry_validator(POPULATION_ENTRY_SCHEMA)

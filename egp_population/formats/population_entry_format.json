@@ -3,7 +3,6 @@
         "type": "integer",
         "min": 0,
         "max": 32767,
-        "readonly": true,
         "meta": {
             "description": "Population UID is assigned by the Gene Pool if it does not already exist."
         }
@@ -18,12 +17,24 @@
         "readonly": true,
         "default_setter": "set_population_hash"
     },
-    "git_repo_url": {
+    "git_repo": {
+        "type": "string",
+        "regex": "[a-zA-Z0-9_-\\.]{1, 256}",
+        "minlength": 1,
+        "meta": {
+            "description": "The Git base URL *NOT* including the repo name. URL/git_repo.git must be a valid git repo url."
+        },
+        "maxlength": 256,
+        "nullable": true,
+        "default": null,
+        "check_with": "valid_git_repo_url"
+    },
+    "git_url": {
         "type": "string",
         "regex": "(?i)\b((?:https?://|www\\d{0,3}[.]|[a-z0-9.\\-]+[.][a-z]{2,4}/)(?:[^\\s()<>]+|\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\))+(?:\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\)|[^\\s`!()\\[\\]{};:'\".,<>?«»“”‘’]))",
         "minlength": 8,
         "meta": {
-            "description": "The Git repo URL in which to find the fitness function definition."
+            "description": "The Git base URL *NOT* including the repo name. URL/git_repo.git must be a valid git repo url."
         },
         "maxlength": 2048,
         "nullable": true,
@@ -41,22 +52,13 @@
         "default": null,
         "check_with": "valid_git_hash"
     },
-    "git_hash_256": {
-        "type": "boolean",
-        "meta": {
-            "description": "True if git_hash is an SHA256. False if git_hash is SHA1."
-        },
-        "nullable": true,
-        "default": null,
-        "check_with": "valid_git_hash_256"
-    },
     "verified": {
         "type": "boolean",
         "meta": {
             "description": "True if git_hash is an SHA256. False if git_hash is SHA1."
         },
         "nullable": true,
-        "default": null,
+        "default_setter": "set_verified",
         "check_with": "valid_verified"
     },
     "worker_id": {
@@ -145,7 +147,6 @@
         }
     },
     "created": {
-        "nullable": true,
         "meta": {
             "description": "The UTC date and time of the populations definition creation."
         },
@@ -153,20 +154,29 @@
         "readonly": true
     },
     "updated": {
-        "nullable": true,
         "meta": {
             "description": "The UTC date and time user defined fields not used by Erasmus were updated."
         },
         "type": "datetime"
     },
-    "vt": {
-        "type": "integer",
-        "min": 0,
-        "max": 4,
-        "default": 1,
+    "fitness_import": {
+        "type": "string",
+        "required": true,
+        "minlength": 1,
+        "maxlength": 256,
+        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0, 255}",
         "meta": {
-            "description": "The EP type type used to define the inputs and outputs. Default = 1 = EP_TYPE_STR."
+            "description": "'import <fitness_import> as fitness_function' must be valid python."
+        }
+    },
+    "survivability_import": {
+        "type": "string",
+        "required": true,
+        "minlength": 1,
+        "maxlength": 256,
+        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0, 255}",
+        "meta": {
+            "description": "'import <survivability_import> as survivability_function' must be valid python."
         }
     }
-
 }

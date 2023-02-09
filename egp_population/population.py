@@ -2,14 +2,15 @@ from egp_types.reference import reference
 from itertools import count
 from copy import deepcopy
 from functools import partial
-from os.path import dirname, join
+from os.path import dirname, join, isdir
+from subprocess import run, CompletedProcess, PIPE
 from pypgtable import table
-from pypgtable.typing import TableSchema, Conversions, TableConfigNorm, TableConfig
+from pypgtable.typing import TableSchema, Conversions, TableConfigNorm, TableConfig, RowIter
 from pypgtable.validators import raw_table_config_validator
 from json import load, loads, dumps
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger, Logger
 from .typing import PopulationsConfig, PopulationsConfigNorm, PopulationConfig, PopulationConfigNorm
-from typing import Literal
+from typing import Literal, LiteralString
 from .population_validator import population_entry_validator
 
 
@@ -62,14 +63,61 @@ _DEFAULT_POPULATION_METRICS_CONFIG: TableConfigNorm = raw_table_config_validator
 })
 
 
+_POPULATION_CONFIGS_SQL: LiteralString = '{population_hash} = ANY({hashes})'
+_POPULATION_CONFIG_EXITS_SQL: LiteralString = '{population_hash} = ANY({config_hashes})'
+_POPULATION_UID_EXISTS_SQL: LiteralString = '{uid} = ANY({uids})'
+
+
 class population():
 
-    def __init__(self, populations_config: PopulationsConfig | PopulationsConfigNorm,
-        table_config: TableConfig | TableConfigNorm = _DEFAULT_POPULATIONS_CONFIG) -> None:
-        
+    def __init__(self, populations_config: PopulationsConfig,
+        table_config: TableConfig | TableConfigNorm = _DEFAULT_POPULATIONS_CONFIG) -> None:  
         self.table: table = table(raw_table_config_validator.normalized(table_config))
-        self.configs: dict[int, PopulationConfigNorm] = {p['uid']: population_entry_validator.normalized(p) for p in populations_config}
-        _logger.info('Population(s) established.')
+
+        # If a population config has a UID defined then it should already exist
+        # Find it and update the config.
+        defined_uids: dict[int, PopulationConfig] = {config['uid']: config for config in populations_config if 'uid' in config}
+        for defined_config in self.table.select(_POPULATION_UID_EXISTS_SQL, {'uids': list(defined_uids.keys())}):
+            defined_uids[defined_config['uid']].update(defined_config)
+
+        # Its possible that a UID was set in populations_config that does not exist.
+        # If enough config was defined to find or create a new population then the UID will be updated.
+        # If there is not enough the validator below will error.
+        for config in populations_config:
+            if not population_entry_validator.validate(config):
+                assert False, f"Population configuration is not valid:\n{population_entry_validator.error_str()}"
+
+        # To be fully normalized the configs must get existing UIDs from the DB or have the DB create them
+        # Population configurations must have the worker_id populated. If the population config
+        # has already been created by another worker then the worker_id will be over written with the correct UUID.
+        configs: tuple[PopulationConfig, ...] = tuple(population_entry_validator.normalized(p) for p in populations_config)
+        hashes: list[bytes] = [p['population_hash'] for p in configs]
+        existing: set[bytes] = set(self.table.select(_POPULATION_CONFIG_EXITS_SQL, {'hashes': hashes}, ('population_hash',), 'tuple'))
+        self.table.insert((config for config in configs if config['population_hash'] in set(hashes) - existing))
+        self.configs: dict[bytes, PopulationConfig] = {c['uid']: c for c in self.table.select(_POPULATION_CONFIGS_SQL, {'hashes': hashes})}
+
+        # Final bit is importing fitness & survivability functions
+        # Need to make sure the repo exists and is at the right commit first
+        for config in self.configs.values():
+            if config.get('git_repo') is not None: # Then all git fields are not None.
+                if isdir(config.get('git_repo', '')):
+                    result: CompletedProcess[bytes] = run(['git', 'rev-parse', '--verify', 'HEAD'], stdout=PIPE)
+                    assert result.returncode == 0, (f"Is {config.get('git_repo')} a valid git repo? ",
+                        "'git rev-parse --verify HEAD' produced a non-zero return code.")
+                    hash_str: str = result.stdout.decode('utf-8')
+                    assert len(hash_str) == 41 or len(hash_str) == 65, "Unexpected length of returned hash '{hash_str}'."
+                    hash_str = hash_str[:-1]
+                    assert hash_str == config.get('git_hash', ''), f"Git has is '{hash_str}' was expecting \'{config.get('git_hash', '')}\'."
+                else:
+                    url: str = config.get('git_url', '') + '/' + config.get('git_repo', '') + '.git'
+                    result: CompletedProcess[bytes] = run(['git', 'clone', url], stdout=PIPE)
+                    assert result.returncode == 0, (f"Is {url} a valid git repo URL? ",
+                        f"'git clone {url}' produced a non-zero return code.")
+
+
+
+        _logger.info(f'{len(configs)} Population configurations established.')
+
 
     def create_population(self, config:Dict = {}) -> Dict[str, Any]:
         """Create a population in the gene pool.

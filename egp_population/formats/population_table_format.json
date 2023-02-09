@@ -48,7 +48,6 @@
         "description": "The ordered interface hash. Is used to verify all individuals meet the population interface requirements."
     },
     "name": {
-        "primary_key": true,
         "type": "VARCHAR",
         "description": "User defined arbitrary short name used as a unique identifier."
     },
