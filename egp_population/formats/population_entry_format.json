@@ -42,12 +42,13 @@
         "check_with": "valid_git_repo_url"
     },
     "git_hash": {
-        "type": "binary",
-        "maxlength": 32,
+        "type": "string",
+        "maxlength": 64,
         "meta": {
-            "description": "SHA256 or SHA1 (in the LSB's) of the git commit to pull."
+            "description": "Lower case hex SHA256 or SHA1 (in the LSB's) of the git commit to pull."
         },
-        "minlength": 20, 
+        "minlength": 40,
+        "regex": "([0-9a-f]{40}|[0-9a-f]{64})",
         "nullable": true,
         "default": null,
         "check_with": "valid_git_hash"

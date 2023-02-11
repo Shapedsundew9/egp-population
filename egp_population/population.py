@@ -3,6 +3,7 @@ from itertools import count
 from copy import deepcopy
 from functools import partial
 from os.path import dirname, join, isdir
+from os import chdir
 from subprocess import run, CompletedProcess, PIPE
 from pypgtable import table
 from pypgtable.typing import TableSchema, Conversions, TableConfigNorm, TableConfig, RowIter
@@ -100,20 +101,23 @@ class population():
         # Need to make sure the repo exists and is at the right commit first
         for config in self.configs.values():
             if config.get('git_repo') is not None: # Then all git fields are not None.
-                if isdir(config.get('git_repo', '')):
+                if isdir(config.get('git_repo', '__invalid_dir__')):
+                    _logger.info(f"Git repo folder {config.get('git_repo')} exists. Using current checkout.")
                     result: CompletedProcess[bytes] = run(['git', 'rev-parse', '--verify', 'HEAD'], stdout=PIPE)
                     assert result.returncode == 0, (f"Is {config.get('git_repo')} a valid git repo? ",
                         "'git rev-parse --verify HEAD' produced a non-zero return code.")
                     hash_str: str = result.stdout.decode('utf-8')
                     assert len(hash_str) == 41 or len(hash_str) == 65, "Unexpected length of returned hash '{hash_str}'."
                     hash_str = hash_str[:-1]
-                    assert hash_str == config.get('git_hash', ''), f"Git has is '{hash_str}' was expecting \'{config.get('git_hash', '')}\'."
+                    assert hash_str == config.get('git_hash', ''), f"Git has is '{hash_str}' was expecting \'{config.get('git_hash')}\'."
                 else:
                     url: str = config.get('git_url', '') + '/' + config.get('git_repo', '') + '.git'
                     result: CompletedProcess[bytes] = run(['git', 'clone', url], stdout=PIPE)
                     assert result.returncode == 0, (f"Is {url} a valid git repo URL? ",
                         f"'git clone {url}' produced a non-zero return code.")
-
+                    result = run(['git', 'checkout', config.get('git_hash', '__invalid_hash__')], stdout=PIPE)
+                    assert result.returncode == 0, (f"Is {config.get('git_hash')} a valid commit hash for this repo? ",
+                        f"'git checkout {config.get('git_hash')}' produced a non-zero return code.")
 
 
         _logger.info(f'{len(configs)} Population configurations established.')

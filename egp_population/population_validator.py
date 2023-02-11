@@ -49,8 +49,6 @@ class _population_entry_validator(base_validator):
         no_repo: bool = self.document.get('git_repo', None) is None
         if not (no_url == no_hash and no_hash == no_repo):
             self._error(field, "All of 'git_repo_url', 'git_hash' & 'git_repo' must be defined or all must be None.")
-        if value is not None and not (len(value) == 32 or len(value) == 20):
-            self._error(field, f'The git commit hash must be of length 20 (SHA1) or 32 (SHA256) but was length {len(value)}.')
 
     def _check_with_valid_verified(self, field: str, value: bool | None) -> None:
         no_url: bool = self.document.get('git_repo_url', None) is None

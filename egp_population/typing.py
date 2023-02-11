@@ -10,7 +10,7 @@ class PopulationConfig(TypedDict):
     population_hash: NotRequired[bytes]
     git_repo: NotRequired[str]
     git_url: NotRequired[str]
-    git_hash: NotRequired[bytes]
+    git_hash: NotRequired[str]
     verified: NotRequired[bool]
     worker_id: NotRequired[UUID]
     size: NotRequired[int]
@@ -33,7 +33,7 @@ class PopulationConfigNorm(TypedDict):
     population_hash: bytes
     git_repo: str
     git_url: str
-    git_hash: bytes
+    git_hash: str
     verified: bool
     worker_id: UUID
     size: int
