@@ -51,5 +51,11 @@ class PopulationConfigNorm(TypedDict):
     survivability_import: str
 
 
-PopulationsConfig = list[PopulationConfig]
-PopulationsConfigNorm = list[PopulationConfigNorm]
+class PopulationsConfig(TypedDict):
+    configs: NotRequired[list[PopulationConfig]]
+    error_on_commit_hash_mismatch: NotRequired[bool]
+
+
+class PopulationsConfigNorm(TypedDict):
+    configs: list[PopulationConfigNorm]
+    error_on_commit_hash_mismatch: bool
