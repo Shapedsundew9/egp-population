@@ -160,24 +160,34 @@
         },
         "type": "datetime"
     },
-    "fitness_import": {
+    "preload_import": {
         "type": "string",
-        "required": true,
+        "default": "preload_function",
         "minlength": 1,
         "maxlength": 256,
         "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0, 255}",
         "meta": {
-            "description": "'import <fitness_import> as fitness_function' must be valid python."
+            "description": "'import <git_repo>.<preload_import> as preload_function' must be valid python."
+        }
+    },
+    "fitness_import": {
+        "type": "string",
+        "default": "fitness_function",
+        "minlength": 1,
+        "maxlength": 256,
+        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0, 255}",
+        "meta": {
+            "description": "'import <git_repo>.<fitness_import> as fitness_function' must be valid python."
         }
     },
     "survivability_import": {
         "type": "string",
-        "required": true,
+        "default": "survivability_function",
         "minlength": 1,
         "maxlength": 256,
         "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0, 255}",
         "meta": {
-            "description": "'import <survivability_import> as survivability_function' must be valid python."
+            "description": "'import <git_repo>.<survivability_import> as survivability_function' must be valid python."
         }
     }
 }

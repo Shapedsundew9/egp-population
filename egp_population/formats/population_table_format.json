@@ -48,8 +48,9 @@
         "description": "The ordered interface hash. Is used to verify all individuals meet the population interface requirements."
     },
     "name": {
+        "nullable": true,
         "type": "VARCHAR",
-        "description": "User defined arbitrary short name used as a unique identifier."
+        "description": "User defined arbitrary short name."
     },
     "description": {
         "nullable": true,
@@ -70,5 +71,20 @@
         "default": "(NOW() AT TIME ZONE 'UTC')",
         "type": "TIMESTAMP",
         "description": "The UTC date and time user defined fields not used by Erasmus were updated."
+    },
+    "preload_import": {
+        "default": "preload_function",
+        "type": "VARCHAR",
+        "description": "'import <git_repo>.<preload_import> as preload_function' must be valid python."
+    },
+    "fitness_import": {
+        "default": "fitness_function",
+        "type": "VARCHAR",
+        "description": "'import <git_repo>.<fitness_import> as fitness_function' must be valid python."
+    },
+    "survivability_import": {
+        "default": "survivability_function",
+        "type": "VARCHAR",
+        "description": "'import <git_repo>.<survivability_import> as survivability_function' must be valid python."
     }
 }

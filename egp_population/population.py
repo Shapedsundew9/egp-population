@@ -3,9 +3,9 @@ from copy import deepcopy
 from json import dumps, load, loads
 from logging import DEBUG, Logger, NullHandler, getLogger
 from os import chdir, getcwd
-from os.path import dirname, isdir, join
+from os.path import dirname, isdir, join, isfile
 from subprocess import PIPE, CompletedProcess, run
-from typing import LiteralString
+from typing import LiteralString, Callable
 
 from egp_physics.physics import stablize
 from egp_stores.gene_pool import gene_pool
@@ -18,7 +18,7 @@ from pypgtable.typing import Conversions, TableConfig, TableConfigNorm, TableSch
 from pypgtable.validators import raw_table_config_validator
 
 from .population_validator import population_entry_validator
-from .typing import PopulationConfig, PopulationsConfig
+from .typing import PopulationConfig, PopulationsConfig, PopulationConfigNorm, cast_pc_to_pcn
 
 
 _logger: Logger = getLogger(__name__)
@@ -73,7 +73,7 @@ def population_table_config() -> TableConfigNorm:
 
 def configure_populations(populations_config: PopulationsConfig,
                           table_config: TableConfig | TableConfigNorm = _DEFAULT_POPULATIONS_CONFIG
-                          ) -> tuple[dict[int, PopulationConfig], table, table]:
+                          ) -> tuple[dict[int, PopulationConfigNorm], table, table]:
     """Configure populations for runtime.
 
     Args
@@ -113,14 +113,18 @@ def configure_populations(populations_config: PopulationsConfig,
     # Final bit is importing fitness & survivability functions
     # Need to make sure the repo exists and is at the right commit first
     for config in p_configs.values():
+        _logger.info(f"Loading population name: {config.get('Name')}, UID: {config.get('uid')}, hash: {config.get('population_hash')}")
         if config.get('git_repo') is not None:  # Then all git fields are not None.
             cwd: str = getcwd()
             git_repo: str = config.get('git_repo', '.')
             git_hash: str = config.get('git_hash', '')
+            _logger.info(f"Population definition in git repo {git_repo} at commit {git_hash}")
             if isdir(config.get('git_repo', '__invalid_dir__')):
                 _logger.info(f"Git repo folder {git_repo} exists. Using current checkout.")
                 chdir(config.get('git_repo', '.'))
                 result: CompletedProcess[bytes] = run(['git', 'rev-parse', '--verify', 'HEAD'], stdout=PIPE, check=False)
+                log_level: Callable[..., None] = _logger.error if not result.returncode else _logger.info
+                log_level('\n' + result.stdout.decode('utf-8'))  # pylint: disable=W1201
                 assert result.returncode == 0, (f"Is {git_repo} a valid git repo? ",
                                                 "'git rev-parse --verify HEAD' produced a non-zero return code.")
                 hash_str: str = result.stdout.decode('utf-8')
@@ -128,31 +132,67 @@ def configure_populations(populations_config: PopulationsConfig,
                 hash_str = hash_str[:-1]
                 if populations_config.get('error_on_commit_hash_mismatch', True):
                     assert hash_str == git_hash, f"Git has is '{hash_str}' was expecting \'{git_hash}\'."
+                    _logger.info("Git checkout hash matches expectations.")
+                elif hash_str != git_hash:
+                    _logger.warning(f"Git has is '{hash_str}' was expecting \'{git_hash}\'.")
+                else:
+                    _logger.info("Git checkout hash matches expectations.")
+                _logger.info("Not installing requirements of population git repo as repo already exists.")
             else:
+                # Clone the repo
                 url: str = config.get('git_url', '') + '/' + git_repo + '.git'
                 result: CompletedProcess[bytes] = run(['git', 'clone', url], stdout=PIPE, check=False)
+                log_level: Callable[..., None] = _logger.error if not result.returncode else _logger.info
+                log_level('\n' + result.stdout.decode('utf-8'))  # pylint: disable=W1201
                 assert result.returncode == 0, (f"Is {url} a valid git repo URL? ",
                                                 f"'git clone {url}' produced a non-zero return code.")
+
+                # Checkout the commit
                 chdir(git_repo)
                 result = run(['git', 'checkout', git_hash], stdout=PIPE, check=False)
+                log_level: Callable[..., None] = _logger.error if not result.returncode else _logger.info
+                log_level('\n' + result.stdout.decode('utf-8'))  # pylint: disable=W1201
                 assert result.returncode == 0, (f"Is {git_hash} a valid commit hash for this repo? ",
                                                 f"'git checkout {git_hash}' produced a non-zero return code.")
+
+                # Install the dependencies
+                if isfile('requirements.txt'):
+                    result: CompletedProcess[bytes] = run(['pip', 'install', '-r', 'requirements.txt'], stdout=PIPE, check=False)
+                    log_level: Callable[..., None] = _logger.error if not result.returncode else _logger.info
+                    log_level('\n' + result.stdout.decode('utf-8'))  # pylint: disable=W1201
+                    assert result.returncode == 0, ("Non-zero return code trying to install python requirements. ",
+                                                    "'pip install -r requirements.txt'")
+                else:
+                    _logger.info(f"No requirements.txt file exists for population {config.get('uid')}.")
             chdir(cwd)
 
-        # Import the fitness and survivability functions
+        # Import the preload function
+        _logger.info(f"Importing the preload function for population {config.get('uid')}.")
+        preload_import: str = config.get('preload_import', '__configuration_error__')
+        import_str: str = f"from {preload_import} import preload_function as preload_function_{config.get('uid')}\n"
+        exec(import_str, globals())
+        _logger.info(f"Executing preload function for population {config.get('uid')}.")
+        exec(f"preload_function_{config.get('uid')}()")
+
+        # Import the fitness function
+        _logger.info(f"Importing the fitness function for population {config.get('uid')}.")
         fitness_import: str = config.get('fitness_import', '__configuration_error__')
         import_str: str = f"from {fitness_import} import fitness_function as fitness_function_{config.get('uid')}\n"
-        exec(import_str, globals())  # pylint: disable=W0122
-        exec(f"config['fitness_function'] = fitness_function_{config.get('uid')}")  # pylint: disable=W0122
+        exec(import_str, globals())
+        exec(f"config['fitness_function'] = fitness_function_{config.get('uid')}")
+
+        # Import the survivability function
+        _logger.info(f"Importing the survivability function for population {config.get('uid')}.")
         survivability_import: str = config.get('survivability_import', '__configuration_error__')
         import_str = f"from {survivability_import} import survivability_function as survivability_function_{config.get('uid')}\n"
-        exec(import_str, globals())  # pylint: disable=W0122
-        exec(f"config['survivability_function'] = survivability_function_{config.get('uid')}")  # pylint: disable=W0122
-    _logger.info(f'{len(configs)} Population configurations established.')
-    return p_configs, p_table, pm_table
+        exec(import_str, globals())
+        exec(f"config['survivability_function'] = survivability_function_{config.get('uid')}")
+
+    _logger.info(f'{len(p_configs)} Population configurations normalized.')
+    return {u: cast_pc_to_pcn(c) for u, c in p_configs.items()}, p_table, pm_table
 
 
-def new_population(population_config: PopulationConfig, glib: genomic_library, gpool: gene_pool, num: int | None = None) -> None:
+def new_population(population_config: PopulationConfigNorm, glib: genomic_library, gpool: gene_pool, num: int | None = None) -> None:
     """Create num target population GC's.
 
     Args
@@ -163,16 +203,14 @@ def new_population(population_config: PopulationConfig, glib: genomic_library, g
     num: The number of GC's to create. If None it is population_config['size']
     """
     # Check the population index exists
-    num_to_create: int = num if num is not None else population_config.get('size', 100)
-    _logger.info(f"Creating {num_to_create} GC's for population index: {population_config.get('uid')}.")
+    num_to_create: int = num if num is not None else population_config['size']
+    _logger.info(f"Creating {num_to_create} GC's for population index: {population_config['uid']}")
 
     # Create some new gGC's & mark them as individuals too.
     # This may require pulling new agc's from the genomic library through steady state exceptions
     # in the stabilise() in which case we need to pull in all dependents not already in the
     # gene pool.
     for _ in range(num_to_create):
-        inputs: tuple[str, ...] = population_config.get('inputs', tuple())
-        outputs: tuple[str, ...] = population_config.get('outputs', tuple())
         retry_count: int = 0
         rgc: dict | None = None
         fgc_dict: dict = {}
@@ -180,13 +218,13 @@ def new_population(population_config: PopulationConfig, glib: genomic_library, g
             if retry_count:
                 _logger.info(f'eGC random creation failed. Retrying...{retry_count}')
             retry_count += 1
-            egc: eGC = eGC(inputs=inputs, outputs=outputs, vt=vtype.EP_TYPE_STR)
+            egc: eGC = eGC(inputs=population_config['inputs'], outputs=population_config['outputs'], vt=vtype.EP_TYPE_STR)
             rgc, fgc_dict = stablize(glib, egc)
             if retry_count == 3:
-                raise ValueError(f"Failed to create eGC with inputs = {inputs} and outputs"
-                                 f" = {outputs} {retry_count} times in a row.")
+                raise ValueError(f"Failed to create eGC with inputs = {population_config['inputs']} and outputs"
+                                 f" = {population_config['outputs']} {retry_count} times in a row.")
 
-        rgc['population_uid'] = population_config.get('uid', 0)
+        rgc['population_uid'] = population_config['uid']
         gpool.pool[rgc['ref']] = rgc
         gpool.pool.update(fgc_dict)
         _logger.debug(f'Created GGCs to add to Gene Pool: {[ref_str(ggc["ref"]) for ggc in (rgc, *fgc_dict.values())]}')
