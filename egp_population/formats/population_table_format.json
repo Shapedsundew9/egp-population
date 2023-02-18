@@ -8,8 +8,12 @@
         "primary_key": true,
         "description": "SHA256 of the population configuration settings."
     },
+    "git_path": {
+        "type": "VARCHAR",
+        "description": "The folder in which to find/clone the git repo."
+    },
     "git_repo_url": {
-        "type": "string",
+        "type": "VARCHAR",
         "nullable": true,
         "description": "The Git repo URL in which to find the fitness function definition."
     },

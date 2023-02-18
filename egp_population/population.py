@@ -2,7 +2,7 @@
 from copy import deepcopy
 from json import dumps, load, loads
 from logging import DEBUG, Logger, NullHandler, getLogger
-from os import chdir, getcwd
+from os import chdir, getcwd, makedirs
 from os.path import dirname, isdir, join, isfile
 from subprocess import PIPE, CompletedProcess, run
 from typing import LiteralString, Callable
@@ -118,9 +118,19 @@ def configure_populations(populations_config: PopulationsConfig,
             cwd: str = getcwd()
             git_repo: str = config.get('git_repo', '.')
             git_hash: str = config.get('git_hash', '')
-            _logger.info(f"Population definition in git repo {git_repo} at commit {git_hash}")
+            git_path: str = config.get('git_path', '.')
+
+            # Get to the right path
+            if not isdir(git_path):
+                _logger.info(f"'{git_path}' does not exist. Creating.")
+                makedirs(git_path)
+            _logger.info(f"Population definition in git repo '{git_repo}' at commit {git_hash}")
+            _logger.info(f"Looking for git repo '{git_repo}' in '{git_path}'")
+            chdir(git_path)
+
+            # If the repo exists check it is what we are expecting
             if isdir(config.get('git_repo', '__invalid_dir__')):
-                _logger.info(f"Git repo folder {git_repo} exists. Using current checkout.")
+                _logger.info(f"Git repo folder '{git_repo}' exists. Using current checkout.")
                 chdir(config.get('git_repo', '.'))
                 result: CompletedProcess[bytes] = run(['git', 'rev-parse', '--verify', 'HEAD'], stdout=PIPE, check=False)
                 log_level: Callable[..., None] = _logger.error if not result.returncode else _logger.info

@@ -17,6 +17,15 @@
         "readonly": true,
         "default_setter": "set_population_hash"
     },
+    "git_path": {
+        "type": "string",
+        "minlength": 1,
+        "default": ".",
+        "meta": {
+            "description": "The folder in which to find/clone the git repo."
+        },
+        "maxlength": 256
+    },
     "git_repo": {
         "type": "string",
         "regex": "[a-zA-Z0-9_-\\.]{1, 256}",
@@ -34,7 +43,7 @@
         "regex": "(?i)\b((?:https?://|www\\d{0,3}[.]|[a-z0-9.\\-]+[.][a-z]{2,4}/)(?:[^\\s()<>]+|\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\))+(?:\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\)|[^\\s`!()\\[\\]{};:'\".,<>?«»“”‘’]))",
         "minlength": 8,
         "meta": {
-            "description": "The Git base URL *NOT* including the repo name. URL/git_repo.git must be a valid git repo url."
+            "description": "The Git base URL *NOT* including the repo name. 'git_url/git_repo.git' must be a valid git repo URL."
         },
         "maxlength": 2048,
         "nullable": true,
@@ -73,7 +82,7 @@
         "type": "integer",
         "min": 1,
         "max": 2147483647,
-        "default": 100,
+        "default": 128,
         "meta": {
             "description": "The size of the population to be created / evolved in an epoch. Usually this would be 100's may be 10's, maybe 1000's."
         }
