@@ -3,7 +3,7 @@ from typing import TypedDict, NotRequired, Iterable, Callable
 from uuid import UUID
 from datetime import datetime
 from egp_types.xGC import xGC
-from egp_types.typing import FitnessFunction, SurvivabilityFunction
+from egp_types.egp_typing import FitnessFunction, SurvivabilityFunction
 
 
 class PopulationConfig(TypedDict):
