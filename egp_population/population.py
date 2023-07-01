@@ -18,7 +18,7 @@ from pypgtable.typing import Conversions, TableConfig, TableConfigNorm, TableSch
 from pypgtable.validators import raw_table_config_validator
 
 from .population_validator import population_entry_validator
-from .typing import PopulationConfig, PopulationsConfig, PopulationConfigNorm, cast_pc_to_pcn
+from .egp_typing import PopulationConfig, PopulationsConfig, PopulationConfigNorm, cast_pc_to_pcn
 
 
 _logger: Logger = getLogger(__name__)
