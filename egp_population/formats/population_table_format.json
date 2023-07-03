@@ -35,9 +35,9 @@
         "type": "UUID",
         "description": "The ID of the worker that created the population."
     },
-    "size":  {
+    "active_size":  {
         "type": "INT",
-        "description": "Number of individuals in the target layer with the idx defined in this row."
+        "description": "Number of individuals to create and/or evolve by default in each epoch (can be overridden by the active flag)."
     },
     "inputs": {
         "type": "VARCHAR",

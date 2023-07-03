@@ -1,9 +1,16 @@
 """Population Types"""
-from typing import TypedDict, NotRequired, Iterable, Callable
-from uuid import UUID
 from datetime import datetime
+from typing import Callable, Iterable, NotRequired, TypedDict
+from uuid import UUID
+
 from egp_types.xGC import xGC
-from egp_types.egp_typing import FitnessFunction, SurvivabilityFunction
+from numpy import int64, real, ndarray
+
+from .population import population
+
+
+FitnessFunction = Callable[[Callable], real]
+SurvivabilityFunction = Callable[[population], tuple[ndarray[real], ndarray[bool]] | tuple[ndarray[int64], ndarray[real], ndarray[bool]]]
 
 
 class PopulationConfig(TypedDict):
