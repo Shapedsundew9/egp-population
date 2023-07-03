@@ -5,16 +5,12 @@ from logging import DEBUG, Logger, NullHandler, getLogger
 from os import chdir, getcwd, makedirs
 from os.path import dirname, isdir, join, isfile
 from subprocess import PIPE, CompletedProcess, run
-from typing import LiteralString, Callable, Any, Generator, Self
-from functools import lru_cache
-from numpy import array
-from random import getrandbits
+from typing import LiteralString, Callable
 
 from egp_physics.physics import stablize
 from egp_stores.gene_pool import gene_pool
 from egp_stores.genomic_library import genomic_library
 from egp_types.eGC import eGC
-from egp_types.xGC import xGC
 from egp_types.ep_type import vtype
 from egp_types.reference import ref_str
 from pypgtable import table
@@ -242,47 +238,3 @@ def new_population(population_config: PopulationConfigNorm, glib: genomic_librar
         gpool.pool[rgc['ref']] = rgc
         gpool.pool.update(fgc_dict)
         _logger.debug(f'Created GGCs to add to Gene Pool: {[ref_str(ggc["ref"]) for ggc in (rgc, *fgc_dict.values())]}')
-
-
-class population():
-    """The population class provides an interface to the population in the
-    Gene Pool typically for use in the survivor selection process."""
-
-    def __init__(self, xgcs: list[xGC] | tuple[xGC, ...] | Generator[xGC, None, None]) -> None:
-        """Create a new population instance.
-
-        NOTE: to prevent copying and hashing of the xGC's the xGC's are stored in a tuple.
-        """
-        self._xgcs = tuple(xgcs) if not isinstance(xgcs, (tuple, list)) else xgcs
-        self._hash = getrandbits(64)
-
-    def __eq__(self, other: Any) -> bool:
-        """Required for LRU cache to work for each instance."""
-        if isinstance(other, population):
-            return self._hash == other._hash
-        return False
-
-    def __hash__(self):
-        """Required for LRU cache to work for each instance."""
-        return self._hash
-
-    def __len__(self) -> int:
-        """The number of xGCs in the population."""
-        return len(self._xgcs)
-
-    def active(self) -> Self:
-        """Return the population of active xGCs."""
-        return population(xgc for xgc in self._xgcs if xgc['active'])
-    
-    def modified(self):
-        """If the xGC list changes or the undelrying data changes then change the hash.
-        
-        This is necessary because it would be expensive to check the xGC's for changes.
-        """
-        self._hash = getrandbits(64)
-
-    @lru_cache(maxsize=64)
-    def __getitem__(self, key: str) -> list | array:
-        """Return the list of values for the given key."""
-        # NOTE: The LRU cache is class level so it will be shared between all instances.
-        return array([xgc[key] for xgc in self._xgcs])

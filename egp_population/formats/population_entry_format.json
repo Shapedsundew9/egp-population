@@ -65,7 +65,7 @@
     "verified": {
         "type": "boolean",
         "meta": {
-            "description": "True if git_hash is an SHA256. False if git_hash is SHA1."
+            "description": "?"
         },
         "nullable": true,
         "default_setter": "set_verified",
