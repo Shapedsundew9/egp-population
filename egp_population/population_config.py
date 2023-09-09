@@ -8,13 +8,15 @@ from subprocess import PIPE, CompletedProcess, run
 from typing import LiteralString, Callable
 
 from egp_physics.physics import stablize
+from egp_physics.egp_typing import NewGCDef
 from egp_stores.gene_pool import gene_pool
 from egp_stores.genomic_library import genomic_library
 from egp_types.eGC import eGC
+from egp_types.aGC import aGC
 from egp_types.ep_type import vtype
 from egp_types.reference import ref_str
 from pypgtable import table
-from pypgtable.typing import Conversions, TableConfig, TableConfigNorm, TableSchema
+from pypgtable.pypgtable_typing import Conversions, TableConfig, TableConfigNorm, TableSchema
 from pypgtable.validators import raw_table_config_validator
 
 from .population_validator import population_entry_validator
@@ -105,7 +107,7 @@ def configure_populations(populations_config: PopulationsConfig,
     # Population configurations must have the worker_id populated. If the population config
     # has already been created by another worker then the worker_id will be over written with the correct UUID.
     configs: tuple[PopulationConfig, ...] = tuple(population_entry_validator.normalized(p) for p in populations_config)
-    hashes: list[bytes] = [p['population_hash'] for p in configs]
+    hashes: list[bytes] = [p['population_hash'] for p in configs if 'population_hash' in p]
     existing: set[bytes] = set(p_table.select(_POPULATION_CONFIG_EXITS_SQL, {'hashes': hashes}, ('population_hash',), 'tuple'))
     p_table.insert((config for config in configs if config['population_hash'] in set(hashes) - existing))
     p_configs: dict[int, PopulationConfig] = {c['uid']: c for c in p_table.select(_POPULATION_CONFIGS_SQL, {'hashes': hashes})}
@@ -202,7 +204,7 @@ def configure_populations(populations_config: PopulationsConfig,
     return {u: cast_pc_to_pcn(c) for u, c in p_configs.items()}, p_table, pm_table
 
 
-def new_population(population_config: PopulationConfigNorm, glib: genomic_library, gpool: gene_pool, num: int | None = None) -> None:
+def new_population(population_config: PopulationConfigNorm, gpool: gene_pool, num: int | None = None) -> None:
     """Create num target population GC's.
 
     Args
@@ -213,7 +215,7 @@ def new_population(population_config: PopulationConfigNorm, glib: genomic_librar
     num: The number of GC's to create. If None it is population_config['active_size']
     """
     # Check the population index exists
-    num_to_create: int = num if num is not None else population_config['active_size']
+    num_to_create: int = num if num is not None else population_config.get('active_size', 100)
     _logger.info(f"Creating {num_to_create} GC's for population index: {population_config['uid']}")
 
     # Create some new gGC's & mark them as individuals too.
@@ -221,18 +223,8 @@ def new_population(population_config: PopulationConfigNorm, glib: genomic_librar
     # in the stabilise() in which case we need to pull in all dependents not already in the
     # gene pool.
     for _ in range(num_to_create):
-        retry_count: int = 0
-        rgc: dict | None = None
-        fgc_dict: dict = {}
-        while rgc is None:
-            if retry_count:
-                _logger.info(f'eGC random creation failed. Retrying...{retry_count}')
-            retry_count += 1
-            egc: eGC = eGC(inputs=population_config['inputs'], outputs=population_config['outputs'], vt=vtype.EP_TYPE_STR)
-            rgc, fgc_dict = stablize(glib, egc)
-            if retry_count == 3:
-                raise ValueError(f"Failed to create eGC with inputs = {population_config['inputs']} and outputs"
-                                 f" = {population_config['outputs']} {retry_count} times in a row.")
+        egc: eGC = eGC(inputs=population_config['inputs'], outputs=population_config['outputs'], vt=vtype.EP_TYPE_STR)
+        rgc, fgc_dict = stablize(gpool, egc)
 
         rgc['population_uid'] = population_config['uid']
         gpool.pool[rgc['ref']] = rgc

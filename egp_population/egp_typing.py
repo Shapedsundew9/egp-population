@@ -1,16 +1,16 @@
 """Population Types"""
 from datetime import datetime
-from typing import Callable, Iterable, NotRequired, TypedDict
+from typing import Callable, NotRequired, TypedDict
 from uuid import UUID
 
-from egp_types.xGC import xGC
-from numpy import int64, real, ndarray
+from numpy import int64, single, bool_
+from numpy.typing import NDArray
 
 from .population import population
 
 
-FitnessFunction = Callable[[Callable], real]
-SurvivabilityFunction = Callable[[population], tuple[ndarray[real], ndarray[bool]] | tuple[ndarray[int64], ndarray[real], ndarray[bool]]]
+FitnessFunction = Callable[[Callable], single]
+SurvivabilityFunction = Callable[[population], tuple[NDArray[single], NDArray[bool_]] | tuple[NDArray[int64], NDArray[single], NDArray[bool_]]]
 
 
 class PopulationConfig(TypedDict):
@@ -75,51 +75,3 @@ class PopulationsConfigNorm(TypedDict):
     """Type definition."""
     configs: list[PopulationConfigNorm]
     error_on_commit_hash_mismatch: bool
-
-
-# Used in the 'cast' of PopulationConfig to PopulationConfigNorm
-# Seems like a lot of hoops to jump through to get type checking.
-def _mock_plf() -> None:
-    pass
-
-
-def _mock_ff(dummy: Iterable[xGC]) -> None:
-    """Function is never executed."""
-    for dumb in dummy:
-        dumb[''] = None
-
-
-def _mock_sf(dummy1: Iterable[xGC], dummy2: Iterable[xGC]) -> None:
-    """Function is never executed."""
-    for dumb in dummy1:
-        dumb[''] = None
-    for dumb in dummy2:
-        dumb[''] = None
-
-
-def cast_pc_to_pcn(population_config: PopulationConfig) -> PopulationConfigNorm:
-    """Force a normalized PopulationConfig type to a PopulationConfigNorm."""
-    return {
-        'uid': population_config.get('uid', int()),
-        'population_hash': population_config.get('population_hash', bytes()),
-        'git_repo': population_config.get('git_repo', str()),
-        'git_url': population_config.get('git_url', str()),
-        'git_hash': population_config.get('git_hash', str()),
-        'verified': population_config.get('verified', bool()),
-        'worker_id': population_config.get('worker_id', UUID()),
-        'size': population_config.get('size', int()),
-        'inputs': population_config.get('inputs', tuple()),
-        'outputs': population_config.get('outputs', tuple()),
-        'ordered_interface_hash': population_config.get('ordered_interface_hash', int()),
-        'name': population_config.get('name', str()),
-        'description': population_config.get('description'),
-        'meta_data': population_config.get('meta_data'),
-        'created': population_config.get('created', datetime.now()),
-        'updated': population_config.get('updated', datetime.now()),
-        'preload_function': population_config.get('preload_function', _mock_plf),
-        'fitness_function': population_config.get('fitness_function', _mock_ff),
-        'survivability_function': population_config.get('survivability_function', _mock_sf),
-        'preload_import': population_config.get('preload_import', str()),
-        'fitness_import': population_config.get('fitness_import', str()),
-        'survivability_import': population_config.get('survivability_import', str())
-    }
