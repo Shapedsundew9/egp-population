@@ -14,9 +14,7 @@ from egp_types.ep_type import (
 )
 
 
-with open(
-    join(dirname(__file__), "formats/gp_entry_format.json"), "r", encoding="utf8"
-) as file_ptr:
+with open(join(dirname(__file__), "formats/population_entry_format.json"), "r", encoding="utf8") as file_ptr:
     POPULATION_ENTRY_SCHEMA: dict[str, dict[str, Any]] = load(file_ptr)
 
 
@@ -80,9 +78,7 @@ class _population_entry_validator(base_validator):
             )
         if self.document.get("updated") is not None:
             if self.document["updated"] < value:
-                self._error(
-                    field, "A record cannot be updated before it has been created."
-                )
+                self._error(field, "A record cannot be updated before it has been created.")
 
     def _check_with_valid_updated(self, field: str, value: datetime) -> None:
         if value > datetime.utcnow():
@@ -92,27 +88,19 @@ class _population_entry_validator(base_validator):
             )
         if self.document.get("created") is not None:
             if self.document["updated"] > value:
-                self._error(
-                    field, "A record cannot be updated before it has been created."
-                )
+                self._error(field, "A record cannot be updated before it has been created.")
 
     def _normalize_default_setter_set_oih(self, document) -> int:
         vt: vtype = document.get("vt", vtype.EP_TYPE_STR)
-        o_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(
-            self.document["outputs"], vt
-        )
-        i_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(
-            self.document["inputs"], vt
-        )
+        o_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["outputs"], vt)
+        i_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["inputs"], vt)
         return ordered_interface_hash(i_def[1], o_def[1], i_def[2], o_def[2])
 
     def _normalize_default_setter_set_population_hash(self, document) -> bytes:
-        string: str = "".join(
-            (str(document.get(field, None)) for field in _POPULATION_HASH_FIELDS)
-        )
+        string: str = "".join((str(document.get(field, None)) for field in _POPULATION_HASH_FIELDS))
         return sha256(string.encode()).digest()
 
-    def _normalize_default_setter_set_verified(self, document) -> bool | None:
+    def _normalize_default_setter_set_verified(self, _) -> bool | None:
         no_repo: bool = self.document.get("git_repo_url", None) is None
         no_hash: bool = self.document.get("git_hash", None) is None
         no_256: bool = self.document.get("git_repo", None) is None
@@ -122,6 +110,4 @@ class _population_entry_validator(base_validator):
             return False
 
 
-population_entry_validator: _population_entry_validator = _population_entry_validator(
-    POPULATION_ENTRY_SCHEMA
-)
+population_entry_validator: _population_entry_validator = _population_entry_validator(POPULATION_ENTRY_SCHEMA)

@@ -16,16 +16,12 @@ class population:
     """The population class provides an interface to the population in the
     Gene Pool typically for use in the survivor selection process."""
 
-    def __init__(
-        self, xgcs: list[xGC] | tuple[xGC, ...] | Generator[xGC, None, None]
-    ) -> None:
+    def __init__(self, xgcs: list[xGC] | tuple[xGC, ...] | Generator[xGC, None, None]) -> None:
         """Create a new population instance.
 
         NOTE: to prevent copying and hashing of the xGC's the xGC's are stored in a tuple.
         """
-        self._xgcs: tuple[xGC, ...] | list[xGC] = (
-            tuple(xgcs) if not isinstance(xgcs, (tuple, list)) else xgcs
-        )
+        self._xgcs: tuple[xGC, ...] | list[xGC] = tuple(xgcs) if not isinstance(xgcs, (tuple, list)) else xgcs
         self._hash: int = getrandbits(64)
 
     def __eq__(self, other: Any) -> bool:

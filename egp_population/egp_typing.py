@@ -12,8 +12,7 @@ from .population import population
 FitnessFunction = Callable[[Callable], single]
 SurvivabilityFunction = Callable[
     [population],
-    tuple[NDArray[single], NDArray[bool_]]
-    | tuple[NDArray[int64], NDArray[single], NDArray[bool_]],
+    tuple[NDArray[single], NDArray[bool_]] | tuple[NDArray[int64], NDArray[single], NDArray[bool_]],
 ]
 
 
