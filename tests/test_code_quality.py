@@ -9,7 +9,7 @@ def test_formatting() -> None:
 
 def test_linting() -> None:
     """Test that the code is linted correctly."""
-    result: CompletedProcess[bytes] = run(["pylint", "text_token"], stdout=PIPE, stderr=PIPE, check=False)
+    result: CompletedProcess[bytes] = run(["pylint", "egp_population"], stdout=PIPE, stderr=PIPE, check=False)
     assert result.returncode == 0, result.stderr.decode("utf-8")
 
 

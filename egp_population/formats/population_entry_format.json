@@ -8,6 +8,7 @@
         }
     },
     "population_hash": {
+        "coerce": "sha256_str_to_binary",
         "type": "binary",
         "maxlength": 32,
         "meta": {
@@ -28,7 +29,7 @@
     },
     "git_repo": {
         "type": "string",
-        "regex": "[a-zA-Z0-9_-\\.]{1, 256}",
+        "regex": "[a-zA-Z0-9_\\.-]{1,256}",
         "minlength": 1,
         "meta": {
             "description": "The Git base URL *NOT* including the repo name. URL/git_repo.git must be a valid git repo url."
@@ -36,11 +37,11 @@
         "maxlength": 256,
         "nullable": true,
         "default": null,
-        "check_with": "valid_git_repo_url"
+        "check_with": "valid_git_repo"
     },
     "git_url": {
         "type": "string",
-        "regex": "(?i)\b((?:https?://|www\\d{0,3}[.]|[a-z0-9.\\-]+[.][a-z]{2,4}/)(?:[^\\s()<>]+|\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\))+(?:\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\)|[^\\s`!()\\[\\]{};:'\".,<>?«»“”‘’]))",
+        "regex": "^((http|https)://)[-a-zA-Z0-9@:%._\\+~#?&//=]{2,256}\\.[a-z]{2,6}\\b([-a-zA-Z0-9@:%._\\+~#?&//=]*)$",
         "minlength": 8,
         "meta": {
             "description": "The Git base URL *NOT* including the repo name. 'git_url/git_repo.git' must be a valid git repo URL."
@@ -48,7 +49,7 @@
         "maxlength": 2048,
         "nullable": true,
         "default": null,
-        "check_with": "valid_git_repo_url"
+        "check_with": "valid_git_url"
     },
     "git_hash": {
         "type": "string",
@@ -72,6 +73,7 @@
         "check_with": "valid_verified"
     },
     "worker_id": {
+        "coerce": "uuid_str_to_uuid",
         "type": "uuid",
         "required": true,
         "meta": {
@@ -126,7 +128,7 @@
     },
     "name": {
         "type": "string",
-        "regex": "[A-Za-z_][\\w]{0, 63}",
+        "regex": "[A-Za-z_][\\w]{0,63}",
         "minlength": 0,
         "maxlength": 64,
         "nullable": true,
@@ -136,7 +138,7 @@
     },
     "description":{
         "type": "string",
-        "regex": "[ -~]{0, 16384}",
+        "regex": "[ -~]{0,16384}",
         "minlength": 0,
         "maxlength": 16384,
         "nullable": true,
@@ -147,7 +149,7 @@
     },
     "meta_data":{
         "type": "string",
-        "regex": "[ -~]{0, 16384}",
+        "regex": "[ -~]{0,16384}",
         "minlength": 0,
         "maxlength": 16384,
         "nullable": true,
@@ -157,24 +159,28 @@
         }
     },
     "created": {
+        "required": true,
+        "coerce": "datetime_str_to_datetime",
         "meta": {
             "description": "The UTC date and time of the populations definition creation."
         },
         "type": "datetime",
-        "readonly": true
+        "check_with": "valid_created"
     },
     "updated": {
+        "coerce": "datetime_str_to_datetime",
         "meta": {
             "description": "The UTC date and time user defined fields not used by Erasmus were updated."
         },
-        "type": "datetime"
+        "type": "datetime",
+        "check_with": "valid_updated"
     },
     "preload_import": {
         "type": "string",
         "default": "preload_function",
         "minlength": 1,
         "maxlength": 256,
-        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0, 255}",
+        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0,255}",
         "meta": {
             "description": "'import <git_repo>.<preload_import> as preload_function' must be valid python."
         }
@@ -184,7 +190,7 @@
         "default": "fitness_function",
         "minlength": 1,
         "maxlength": 256,
-        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0, 255}",
+        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0,255}",
         "meta": {
             "description": "'import <git_repo>.<fitness_import> as fitness_function' must be valid python."
         }
@@ -194,7 +200,7 @@
         "default": "survivability_function",
         "minlength": 1,
         "maxlength": 256,
-        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0, 255}",
+        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0,255}",
         "meta": {
             "description": "'import <git_repo>.<survivability_import> as survivability_function' must be valid python."
         }

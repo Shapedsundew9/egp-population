@@ -38,7 +38,7 @@ with open(
 ) as file_ptr:
     _POPULATION_TABLE_SCHEMA: TableSchema = load(file_ptr)
 with open(
-    join(dirname(__file__), "formats/population_metrics_table_format.json"),
+    join(dirname(__file__), "formats/population_metrics_format.json"),
     "r",
     encoding="utf8",
 ) as file_ptr:
