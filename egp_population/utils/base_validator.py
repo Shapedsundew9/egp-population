@@ -18,19 +18,25 @@ class BaseValidator(Validator):
 
     def error_str(self):
         """Prettier format to a list of errors."""
-        return '\n'.join((field + ': ' + pformat(error) for field, error in self.errors.items()))
+        return "\n".join(
+            (field + ": " + pformat(error) for field, error in self.errors.items())
+        )
 
     def _isdir(self, field, value):
         """Validate value is a valid, existing directory."""
         if not isdir(value):
-            self._error(field, "{} is not a valid directory or does not exist.".format(value))
+            self._error(
+                field, "{} is not a valid directory or does not exist.".format(value)
+            )
             return False
         return True
 
     def _isfile(self, field, value):
         """Validate value is a valid, existing file."""
         if not isfile(value):
-            self._error(field, "{} is not a valid file or does not exist.".format(value))
+            self._error(
+                field, "{} is not a valid file or does not exist.".format(value)
+            )
             return False
         return True
 
@@ -70,10 +76,10 @@ class BaseValidator(Validator):
     def str_errors(self, error):
         """Create an error string."""
         if error.code == UNKNOWN_FIELD.code:
-            error.rule == 'unknown field'
+            error.rule == "unknown field"
         str_tuple = (
-            'Value: ' + str(error.value),
-            'Rule: ' + str(error.rule),
-            'Constraint: ' + str(error.constraint)
+            "Value: " + str(error.value),
+            "Rule: " + str(error.rule),
+            "Constraint: " + str(error.constraint),
         )
-        return ', '.join(str_tuple)
+        return ", ".join(str_tuple)

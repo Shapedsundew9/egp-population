@@ -10,11 +10,16 @@ from .population import population
 
 
 FitnessFunction = Callable[[Callable], single]
-SurvivabilityFunction = Callable[[population], tuple[NDArray[single], NDArray[bool_]] | tuple[NDArray[int64], NDArray[single], NDArray[bool_]]]
+SurvivabilityFunction = Callable[
+    [population],
+    tuple[NDArray[single], NDArray[bool_]]
+    | tuple[NDArray[int64], NDArray[single], NDArray[bool_]],
+]
 
 
 class PopulationConfig(TypedDict):
     """Type definition."""
+
     uid: NotRequired[int]
     population_hash: NotRequired[bytes]
     git_repo: NotRequired[str]
@@ -41,6 +46,7 @@ class PopulationConfig(TypedDict):
 
 class PopulationConfigNorm(TypedDict):
     """Type definition."""
+
     uid: int
     population_hash: bytes
     git_repo: str
@@ -67,11 +73,13 @@ class PopulationConfigNorm(TypedDict):
 
 class PopulationsConfig(TypedDict):
     """Type definition."""
+
     configs: NotRequired[list[PopulationConfig]]
     error_on_commit_hash_mismatch: NotRequired[bool]
 
 
 class PopulationsConfigNorm(TypedDict):
     """Type definition."""
+
     configs: list[PopulationConfigNorm]
     error_on_commit_hash_mismatch: bool

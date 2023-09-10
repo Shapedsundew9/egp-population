@@ -13,7 +13,7 @@ from logging import getLogger
     'F': Fatal
     'X': Unknown
 """
-_CODE_PREFIXES = ('D', 'I', 'W', 'E', 'F', 'X')
+_CODE_PREFIXES = ("D", "I", "W", "E", "F", "X")
 
 
 """The token library maps token codes to formatted strings.
@@ -22,9 +22,7 @@ The code:fmt_str pairs are added using register_token_code()
 When a token with a code in the token_library is converted to a string
 The fmt_str is looked up and formatted with the token parameters.
 """
-token_library = {
-    'E00000': 'Unknown error code {token} with parameters {parameters}.'
-}
+token_library = {"E00000": "Unknown error code {token} with parameters {parameters}."}
 
 
 def _valid_code(code):
@@ -70,7 +68,7 @@ def register_token_code(code, fmt_str):
     token_library[code] = fmt_str
 
 
-class text_token():
+class text_token:
     """Maintains a relationship between a code and a human readable string.
 
     A token has the structure:
@@ -92,7 +90,7 @@ class text_token():
         This can be recursive if a parameter is of type text_token.
         """
         if self.code not in token_library:
-            return token_library['E00000'].format_map(vars(self))
+            return token_library["E00000"].format_map(vars(self))
         # text_token._logger.debug("Code {}: Parameters: {} Library string: {}".format(
         #   self.code, self.parameters, token_library[self.code]))
         return self.code + ": " + token_library[self.code].format_map(self.parameters)
