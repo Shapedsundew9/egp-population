@@ -5,7 +5,8 @@ from random import getrandbits
 from typing import Any, Generator, Self
 
 from egp_types.xGC import xGC
-from numpy import ndarray, array
+from numpy import array
+from numpy.typing import NDArray
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
@@ -23,6 +24,10 @@ class population:
         """
         self._xgcs: tuple[xGC, ...] | list[xGC] = tuple(xgcs) if not isinstance(xgcs, (tuple, list)) else xgcs
         self._hash: int = getrandbits(64)
+
+    def __iter__(self) -> Generator[xGC, None, None]:
+        """Iterate through the xGC's in the population."""
+        yield from self._xgcs
 
     def __eq__(self, other: Any) -> bool:
         """Required for LRU cache to work for each instance."""
@@ -50,7 +55,10 @@ class population:
         self._hash = getrandbits(64)
 
     @lru_cache(maxsize=64)
-    def __getitem__(self, key: str) -> list | ndarray:
+    def __getitem__(self, key: str) -> list | NDArray:
         """Return the list of values for the given key."""
         # NOTE: The LRU cache is class level so it will be shared between all instances.
-        return array([xgc[key] for xgc in self._xgcs])
+        if self._xgcs:
+            if type(self._xgcs[0][key]).__module__ == "numpy":
+                return array([xgc[key] for xgc in self._xgcs])
+        return [xgc[key] for xgc in self._xgcs]
