@@ -22,7 +22,7 @@ from pypgtable.pypgtable_typing import (
 from pypgtable.validators import raw_table_config_validator
 
 from .population_validator import population_entry_validator
-from .egp_typing import PopulationConfig, PopulationsConfig, PopulationConfigNorm
+from .egp_typing import PopulationConfig, PopulationsConfig, PopulationConfigNorm, PopulationsConfigNorm
 
 
 _logger: Logger = getLogger(__name__)
@@ -51,7 +51,7 @@ _POPULATIONS_CONVERSIONS: Conversions = (
 )
 
 
-_DEFAULT_POPULATIONS_CONFIG: TableConfigNorm = raw_table_config_validator.normalized(
+_POPULATION_TABLE_DEFAULT_CONFIG: TableConfigNorm = raw_table_config_validator.normalized(
     {
         "database": {"dbname": "erasmus"},
         "table": "gene_pool_populations",
@@ -62,7 +62,7 @@ _DEFAULT_POPULATIONS_CONFIG: TableConfigNorm = raw_table_config_validator.normal
     }
 )
 
-_DEFAULT_POPULATION_METRICS_CONFIG: TableConfigNorm = raw_table_config_validator.normalized(
+_POPULATION_METRICS_TABLE_DEFAULT_CONFIG: TableConfigNorm = raw_table_config_validator.normalized(
     {
         "database": {"dbname": "erasmus"},
         "table": "populations_metrics",
@@ -72,20 +72,33 @@ _DEFAULT_POPULATION_METRICS_CONFIG: TableConfigNorm = raw_table_config_validator
     }
 )
 
+_POPULATIONS_DEFAULT_CONFIG: PopulationsConfig = {
+    "configs": [
+        {
+        }
+    ],
+    "error_on_commit_hash_mismatch": True
+}
+
 
 _POPULATION_CONFIGS_SQL: LiteralString = "{population_hash} = ANY({hashes})"
 _POPULATION_CONFIG_EXITS_SQL: LiteralString = "{population_hash} = ANY({config_hashes})"
 _POPULATION_UID_EXISTS_SQL: LiteralString = "{uid} = ANY({uids})"
 
 
-def population_table_config() -> TableConfigNorm:
+def population_table_default_config() -> TableConfigNorm:
     """A copy of the populations config pypgtable table configuration."""
-    return deepcopy(_DEFAULT_POPULATIONS_CONFIG)
+    return deepcopy(_POPULATION_TABLE_DEFAULT_CONFIG)
+
+
+def populations_default_config() -> PopulationsConfig:
+    """A copy of the populations config."""
+    return deepcopy(_POPULATIONS_DEFAULT_CONFIG)
 
 
 def configure_populations(
-    populations_config: PopulationsConfig,
-    table_config: TableConfig | TableConfigNorm = _DEFAULT_POPULATIONS_CONFIG,
+    populations_config: PopulationsConfig | PopulationsConfigNorm,
+    table_config: TableConfig | TableConfigNorm = _POPULATION_TABLE_DEFAULT_CONFIG,
 ) -> tuple[dict[int, PopulationConfigNorm], table, table]:
     """Configure populations for runtime.
 
@@ -96,7 +109,7 @@ def configure_populations(
     """
     p_table_config: TableConfigNorm = raw_table_config_validator.normalized(table_config)
     p_table: table = table(p_table_config)
-    pm_table_config: TableConfigNorm = deepcopy(_DEFAULT_POPULATION_METRICS_CONFIG)
+    pm_table_config: TableConfigNorm = deepcopy(_POPULATION_METRICS_TABLE_DEFAULT_CONFIG)
     pm_table_config["table"] = p_table_config["table"] + "_metrics"
     pm_table: table = table(pm_table_config)
 
