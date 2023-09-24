@@ -2,8 +2,7 @@
 
 from json import load
 from os.path import dirname, join
-from typing import Any, LiteralString
-from hashlib import sha256
+from typing import Any
 from datetime import datetime
 from egp_utils.base_validator import base_validator
 from egp_types.ep_type import (
@@ -19,19 +18,11 @@ with open(join(dirname(__file__), "formats/population_entry_format.json"), "r", 
     POPULATION_ENTRY_SCHEMA: dict[str, dict[str, Any]] = load(file_ptr)
 
 
-_POPULATION_HASH_FIELDS: tuple[LiteralString, ...] = (
-    "egp_problem",
-    "size",
-    "ordered_interface_hash",
-    "name",
-)
-
-
 class _population_entry_validator(base_validator):
     def _check_with_valid_ep_type(self, field: str, value: str) -> None:
-        vt: vtype = self.document.get("vt", vtype.EP_TYPE_STR)
-        if not validate(value, vt):
-            self._error(field, f"ep_type {value} does not exist with vtype {vt}.")
+        val_t: vtype = self.document.get("vt", vtype.EP_TYPE_STR)
+        if not validate(value, val_t):
+            self._error(field, f"ep_type {value} does not exist with vtype {val_t}.")
 
     def _check_with_valid_git_url(self, field: str, value: str | None) -> None:
         no_url: bool = value is None
@@ -63,13 +54,6 @@ class _population_entry_validator(base_validator):
                 "All of 'git_url', 'git_hash' & 'git_repo' must be defined or all must be None.",
             )
 
-    def _check_with_valid_verified(self, field: str, value: bool | None) -> None:
-        no_url: bool = self.document.get("git_url", None) is None
-        no_hash: bool = self.document.get("git_hash", None) is None
-        no_repo: bool = self.document.get("git_repo", None) is None
-        if (no_url or no_hash or no_repo) and value is not None:
-            self._error(field, "verified cannot be defined if git_* are not defined.")
-
     def _check_with_valid_created(self, field: str, value: datetime) -> None:
         if value > datetime.utcnow():
             self._error(
@@ -100,11 +84,6 @@ class _population_entry_validator(base_validator):
         o_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["outputs"], val_t)
         i_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["inputs"], val_t)
         return unordered_interface_hash(i_def[0], o_def[0])
-
-    def _normalize_default_setter_set_population_hash(self, document) -> bytes:
-        string: str = "".join((str(document.get(field, None)) for field in _POPULATION_HASH_FIELDS))
-        return sha256(string.encode()).digest()
-
 
 
 population_entry_validator: _population_entry_validator = _population_entry_validator(POPULATION_ENTRY_SCHEMA)

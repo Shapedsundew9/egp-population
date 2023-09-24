@@ -6,6 +6,7 @@
     },
     "creator": {
         "description": "The UUID of the creator of the problem.",
+        "nullable": true,
         "type": "UUID"
     },
     "description": {
@@ -20,6 +21,7 @@
     },
     "inputs": {
         "description": "JSON list of valid EP_TYPE_STRs defining the target individuals inputs.",
+        "nullable": true,
         "type": "VARCHAR"
     },
     "meta_data": {
@@ -29,21 +31,18 @@
     },
     "name": {
         "description": "User defined arbitrary short name.",
-        "nullable": true,
+        "primary_key": true,
         "type": "VARCHAR"
     },
     "ordered_interface_hash": {
         "description": "The ordered interface hash. Is used to verify all individuals meet the population interface requirements.",
+        "nullable": true,
         "type": "BIGINT"
     },
     "outputs": {
         "description": "JSON list of valid EP_TYPE_STRs defining the target individuals outputs.",
+        "nullable": true,
         "type": "VARCHAR"
-    },
-    "population_hash": {
-        "description": "SHA256 of the population configuration settings.",
-        "primary_key": true,
-        "type": "BYTEA[32]"
     },
     "size": {
         "description": "Number of individuals to create and/or evolve by default in each epoch (can be overridden by the active flag).",
@@ -59,6 +58,7 @@
     },
     "unordered_interface_hash": {
         "description": "The unordered interface hash.",
+        "nullable": true,
         "type": "BIGINT"
     },
     "updated": {

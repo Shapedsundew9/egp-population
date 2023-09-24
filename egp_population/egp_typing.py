@@ -33,11 +33,10 @@ class PopulationConfig(TypedDict):
     """Type definition."""
 
     uid: NotRequired[int]
-    population_hash: NotRequired[bytes]
     egp_problem: NotRequired[str]
     worker_id: NotRequired[UUID | str]
     size: NotRequired[int]
-    name: NotRequired[str | None]
+    name: Required[str]
     inputs: NotRequired[list[str]]
     outputs: NotRequired[list[str]]
     description: NotRequired[str | None]
@@ -53,7 +52,6 @@ class PopulationConfigNorm(TypedDict):
     """Type definition."""
 
     uid: int
-    population_hash: bytes
     egp_problem: str
     worker_id: UUID
     size: int
@@ -61,7 +59,7 @@ class PopulationConfigNorm(TypedDict):
     outputs: list[str]
     ordered_interface_hash: int
     unordered_interface_hash: int
-    name: str | None
+    name: str
     description: str | None
     meta_data: str | None
     created: datetime

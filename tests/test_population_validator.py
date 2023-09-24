@@ -32,8 +32,6 @@ def test_population_validator_validation() -> None:
 def test_population_validator_normalization_0() -> None:
     """Test that the population validator normalizes the minimal population entry correctly."""
     config = population_entry_validator.normalized(_TEST_DATA[0])
-    del config['ordered_interface_hash']
-    del config['population_hash']
     if not population_entry_validator.validate(config):
         assert False, f"{population_entry_validator.error_str()}"
     assert True
@@ -42,8 +40,6 @@ def test_population_validator_normalization_0() -> None:
 def test_population_validator_normalization_1() -> None:
     """Test that the population validator normalizes the minimal population entry correctly."""
     config = population_entry_validator.normalized(_TEST_DATA[1])
-    del config['ordered_interface_hash']
-    del config['population_hash']
     if not population_entry_validator.validate(config):
         assert False, f"{population_entry_validator.error_str()}"
     assert True

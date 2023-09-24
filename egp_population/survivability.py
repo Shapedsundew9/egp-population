@@ -37,11 +37,9 @@ from .egp_typing import Active, Reference, Survivability, SurvivabilityFunction
 
 def elitist(populous: population) -> tuple[Survivability, Active] | tuple[Reference, Survivability, Active]:
     """Elitist survivability function. The fittest active individuals in the gene pool will be evolved."""
-    survivability: NDArray[single] = cast(NDArray[single], populous['fitness'])
+    survivability: NDArray[single] = cast(NDArray[single], populous["fitness"])
     active: NDArray[bool_] = full(survivability.shape, False, dtype=bool_)
     return (survivability, active)
 
 
-SURVIVABILITY_FUNCTIONS: dict[str, SurvivabilityFunction] = {
-    "elitist": elitist
-}
+SURVIVABILITY_FUNCTIONS: dict[str, SurvivabilityFunction] = {"elitist": elitist}
