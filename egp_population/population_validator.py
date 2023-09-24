@@ -9,6 +9,7 @@ from egp_utils.base_validator import base_validator
 from egp_types.ep_type import (
     validate,
     ordered_interface_hash,
+    unordered_interface_hash,
     interface_definition,
     vtype,
 )
@@ -19,8 +20,7 @@ with open(join(dirname(__file__), "formats/population_entry_format.json"), "r", 
 
 
 _POPULATION_HASH_FIELDS: tuple[LiteralString, ...] = (
-    "git_repo_url",
-    "git_hash",
+    "egp_problem",
     "size",
     "ordered_interface_hash",
     "name",
@@ -90,22 +90,21 @@ class _population_entry_validator(base_validator):
             self._error(field, "A record cannot be updated before it has been created.")
 
     def _normalize_default_setter_set_oih(self, document) -> int:
-        vt: vtype = document.get("vt", vtype.EP_TYPE_STR)
-        o_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["outputs"], vt)
-        i_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["inputs"], vt)
-        return ordered_interface_hash(i_def[1], o_def[1], i_def[2], o_def[2])
+        val_t: vtype = document.get("vt", vtype.EP_TYPE_STR)
+        o_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["outputs"], val_t)
+        i_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["inputs"], val_t)
+        return ordered_interface_hash(i_def[0], o_def[0], i_def[2], o_def[2])
+
+    def _normalize_default_setter_set_uoih(self, document) -> int:
+        val_t: vtype = document.get("vt", vtype.EP_TYPE_STR)
+        o_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["outputs"], val_t)
+        i_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["inputs"], val_t)
+        return unordered_interface_hash(i_def[0], o_def[0])
 
     def _normalize_default_setter_set_population_hash(self, document) -> bytes:
         string: str = "".join((str(document.get(field, None)) for field in _POPULATION_HASH_FIELDS))
         return sha256(string.encode()).digest()
 
-    def _normalize_default_setter_set_verified(self, _) -> bool | None:
-        no_repo: bool = self.document.get("git_url", None) is None
-        no_hash: bool = self.document.get("git_hash", None) is None
-        no_256: bool = self.document.get("git_repo", None) is None
-        if no_repo or no_hash or no_256:
-            return None
-        return False
 
 
 population_entry_validator: _population_entry_validator = _population_entry_validator(POPULATION_ENTRY_SCHEMA)

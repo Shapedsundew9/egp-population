@@ -1,3 +1,4 @@
+""" Code quality tests."""
 from subprocess import run, PIPE, CompletedProcess
 
 

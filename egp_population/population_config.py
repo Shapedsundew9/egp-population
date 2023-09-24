@@ -2,10 +2,10 @@
 from copy import deepcopy
 from json import dumps, load, loads
 from logging import DEBUG, Logger, NullHandler, getLogger
-from os import chdir, getcwd, makedirs
-from os.path import dirname, isdir, join, isfile
+from os import chdir, getcwd, listdir
+from os.path import dirname, join, exists
 from subprocess import PIPE, CompletedProcess, run
-from typing import LiteralString, Callable, cast
+from typing import LiteralString, Callable, cast, Any
 
 from egp_physics.physics import stablize
 from egp_stores.gene_pool import gene_pool
@@ -22,7 +22,8 @@ from pypgtable.pypgtable_typing import (
 from pypgtable.validators import raw_table_config_validator
 
 from .population_validator import population_entry_validator
-from .egp_typing import PopulationConfig, PopulationsConfig, PopulationConfigNorm, PopulationsConfigNorm
+from .egp_typing import PopulationConfig, PopulationsConfig, PopulationConfigNorm
+from .survivability import SURVIVABILITY_FUNCTIONS
 
 
 _logger: Logger = getLogger(__name__)
@@ -75,15 +76,16 @@ _POPULATION_METRICS_TABLE_DEFAULT_CONFIG: TableConfigNorm = raw_table_config_val
 _POPULATIONS_DEFAULT_CONFIG: PopulationsConfig = {
     "configs": [
         {
+            "inputs": [],
+            "outputs": [],
         }
-    ],
-    "error_on_commit_hash_mismatch": True
+    ]
 }
 
 
-_POPULATION_CONFIGS_SQL: LiteralString = "{population_hash} = ANY({hashes})"
-_POPULATION_CONFIG_EXITS_SQL: LiteralString = "{population_hash} = ANY({config_hashes})"
-_POPULATION_UID_EXISTS_SQL: LiteralString = "{uid} = ANY({uids})"
+_POPULATION_CONFIGS_SQL: LiteralString = "WHERE {population_hash} = ANY({hashes})"
+_POPULATION_CONFIG_EXISTS_SQL: LiteralString = "WHERE {population_hash} = ANY({hashes})"
+_POPULATION_UID_EXISTS_SQL: LiteralString = "WHERE {uid} = ANY({uids})"
 
 
 def population_table_default_config() -> TableConfigNorm:
@@ -96,8 +98,18 @@ def populations_default_config() -> PopulationsConfig:
     return deepcopy(_POPULATIONS_DEFAULT_CONFIG)
 
 
+def run_cmd(cmdlist: list[str]) -> None:
+    """Run a command and log the output."""
+    result: CompletedProcess[bytes] = run(cmdlist, stdout=PIPE, check=False)
+    log_level: Callable[..., None] = _logger.error if not result.returncode else _logger.info
+    log_level(f"\n{result.stdout.decode('utf-8')}")
+    if result.returncode:
+        raise RuntimeError(f"Command \"{' '.join(cmdlist)}\" FAILED.")
+
+
 def configure_populations(
-    populations_config: PopulationsConfig | PopulationsConfigNorm,
+    populations_config: PopulationsConfig,
+    problem_definitions: list[dict[str, Any]],
     table_config: TableConfig | TableConfigNorm = _POPULATION_TABLE_DEFAULT_CONFIG,
 ) -> tuple[dict[int, PopulationConfigNorm], table, table]:
     """Configure populations for runtime.
@@ -123,125 +135,98 @@ def configure_populations(
     # Its possible that a UID was set in populations_config that does not exist.
     # If enough config was defined to find or create a new population then the UID will be updated.
     # If there is not enough the validator below will error.
-    for config in populations_config:
+    for config in populations_config.get('configs', []):
         if not population_entry_validator.validate(config):
             assert False, f"Population configuration is not valid:\n{population_entry_validator.error_str()}"
 
     # To be fully normalized the configs must get existing UIDs from the DB or have the DB create them
     # Population configurations must have the worker_id populated. If the population config
     # has already been created by another worker then the worker_id will be over written with the correct UUID.
-    configs: tuple[PopulationConfig, ...] = tuple(population_entry_validator.normalized(p) for p in populations_config)
+    configs: tuple[PopulationConfigNorm, ...] = tuple(population_entry_validator.normalized(p) for p in populations_config.get('configs', []))
     hashes: list[bytes] = [p["population_hash"] for p in configs if "population_hash" in p]
-    existing: set[bytes] = set(
-        p_table.select(
-            _POPULATION_CONFIG_EXITS_SQL,
-            {"hashes": hashes},
-            ("population_hash",),
-            "tuple",
+    existing: set[bytes] = set()
+    if hashes:
+        existing = set(
+            p_table.select(
+                _POPULATION_CONFIG_EXISTS_SQL,
+                {"hashes": hashes},
+                ("population_hash",),
+                "tuple",
+            )
         )
-    )
-    p_table.insert((config for config in configs if config.get("population_hash", 0) in set(hashes) - existing))
-    p_configs: dict[int, PopulationConfig] = {c["uid"]: c for c in p_table.select(_POPULATION_CONFIGS_SQL, {"hashes": hashes})}
+    new_configs = tuple(config for config in configs if config.get("population_hash", 0) in set(hashes) - existing)
+    if new_configs:
+        p_table.insert(new_configs)
+        p_configs: dict[int, PopulationConfig] = {c["uid"]: c for c in p_table.select(_POPULATION_CONFIGS_SQL, {"hashes": hashes})}
+    else:
+        p_configs = {}
 
     # Final bit is importing fitness & survivability functions
     # Need to make sure the repo exists and is at the right commit first
+    problem_dict: dict[str, dict[str, Any]] = {p['git_hash']: p for p in problem_definitions}
+    root_wd: str = getcwd()
     for config in p_configs.values():
         _logger.info(f"Loading population name: {config.get('Name')}, UID: {config.get('uid')}, hash: {config.get('population_hash')}")
-        if config.get("git_repo") is not None:  # Then all git fields are not None.
-            cwd: str = getcwd()
-            git_repo: str = config.get("git_repo", ".")
-            git_hash: str = config.get("git_hash", "")
-            git_path: str = config.get("git_path", ".")
 
-            # Get to the right path
-            if not isdir(git_path):
-                _logger.info(f"'{git_path}' does not exist. Creating.")
-                makedirs(git_path)
-            _logger.info(f"Population definition in git repo '{git_repo}' at commit {git_hash}")
-            _logger.info(f"Looking for git repo '{git_repo}' in '{git_path}'")
-            chdir(git_path)
+        # Get the problem definition
+        pdef: dict[str, Any] = problem_dict.get(config.get("egp_problem", "./"), {})
+        if not pdef:
+            problem_file = join(config.get("egp_problem", "./"), "fitness_function.py")
+        else:
+            # It is a verified git repo. Clone it if it is not already.
+            if not exists(pdef["git_repo"]):
+                _logger.info(f"Git repo '{pdef['git_repo']}' does not exist. Cloning.")
+                url: str = pdef["git_url"] + ("/", "")[pdef["git_url"].endswith("/")] + pdef["git_repo"] + ".git"
+                run_cmd(["git", "clone", "-n", "--depth=1", "--filter=tree:0", url])
 
-            # If the repo exists check it is what we are expecting
-            if isdir(config.get("git_repo", "__invalid_dir__")):
-                _logger.info(f"Git repo folder '{git_repo}' exists. Using current checkout.")
-                chdir(config.get("git_repo", "."))
-                result: CompletedProcess[bytes] = run(["git", "rev-parse", "--verify", "HEAD"], stdout=PIPE, check=False)
-                log_level: Callable[..., None] = _logger.error if not result.returncode else _logger.info
-                log_level("\n" + result.stdout.decode("utf-8"))  # pylint: disable=W1201
-                assert result.returncode == 0, (
-                    f"Is {git_repo} a valid git repo? ",
-                    "'git rev-parse --verify HEAD' produced a non-zero return code.",
-                )
-                hash_str: str = result.stdout.decode("utf-8")
-                assert len(hash_str) == 41 or len(hash_str) == 65, "Unexpected length of returned hash '{hash_str}'."
-                hash_str = hash_str[:-1]
-                if populations_config.get("error_on_commit_hash_mismatch", True):
-                    assert hash_str == git_hash, f"Git has is '{hash_str}' was expecting '{git_hash}'."
-                    _logger.info("Git checkout hash matches expectations.")
-                elif hash_str != git_hash:
-                    _logger.warning(f"Git has is '{hash_str}' was expecting '{git_hash}'.")
-                else:
-                    _logger.info("Git checkout hash matches expectations.")
-                _logger.info("Not installing requirements of population git repo as repo already exists.")
-            else:
-                # Clone the repo
-                url: str = config.get("git_url", "") + "/" + git_repo + ".git"
-                result: CompletedProcess[bytes] = run(["git", "clone", url], stdout=PIPE, check=False)
-                log_level: Callable[..., None] = _logger.error if not result.returncode else _logger.info
-                log_level("\n" + result.stdout.decode("utf-8"))  # pylint: disable=W1201
-                assert result.returncode == 0, (
-                    f"Is {url} a valid git repo URL? ",
-                    f"'git clone {url}' produced a non-zero return code.",
-                )
+            # Checkout the problem at the correct commit if needed
+            if not exists(join(pdef["git_repo"], pdef["root_path"])):
+                _logger.info(f"Git repo '{pdef['git_repo']}' checking out {pdef['root_path']} at commit {pdef['git_hash']}.")
+                chdir(pdef["git_repo"])
+                operation: str = "add" if listdir(".") else "set"
+                run_cmd(["git", "sparse-checkout", operation, "--no-cone", pdef['root_path']])
+                run_cmd(["git", "checkout", pdef['git_hash'], "--", pdef['root_path']])
+                if not exists(join(pdef["root_path"], "fitness_function.py")):
+                    raise FileNotFoundError(f"Problem file '{join(pdef['root_path'], 'fitness_function.py')}' does not exist.")
+                chdir(root_wd)
 
-                # Checkout the commit
-                chdir(git_repo)
-                result = run(["git", "checkout", git_hash], stdout=PIPE, check=False)
-                log_level: Callable[..., None] = _logger.error if not result.returncode else _logger.info
-                log_level("\n" + result.stdout.decode("utf-8"))  # pylint: disable=W1201
-                assert result.returncode == 0, (
-                    f"Is {git_hash} a valid commit hash for this repo? ",
-                    f"'git checkout {git_hash}' produced a non-zero return code.",
-                )
+            # Install the requirements if needed
+            chdir(join(pdef["git_repo"], pdef["root_path"]))
+            _logger.info("Installing requirements.")
+            if exists("requirements.txt"):
+                run_cmd(["pip", "install", "-r", "requirements.txt"])
+            chdir(root_wd)
 
-                # Install the dependencies
-                if isfile("requirements.txt"):
-                    result: CompletedProcess[bytes] = run(
-                        ["pip", "install", "-r", "requirements.txt"],
-                        stdout=PIPE,
-                        check=False,
-                    )
-                    log_level: Callable[..., None] = _logger.error if not result.returncode else _logger.info
-                    log_level("\n" + result.stdout.decode("utf-8"))  # pylint: disable=W1201
-                    assert result.returncode == 0, (
-                        "Non-zero return code trying to install python requirements. ",
-                        "'pip install -r requirements.txt'",
-                    )
-                else:
-                    _logger.info(f"No requirements.txt file exists for population {config.get('uid')}.")
-            chdir(cwd)
+            problem_file: str = join(pdef["git_repo"], pdef["root_path"], "fitness_function.py")
 
-        # Import the preload function
-        _logger.info(f"Importing the preload function for population {config.get('uid')}.")
-        preload_import: str = config.get("preload_import", "__configuration_error__")
-        import_str: str = f"from {preload_import} import preload_function as preload_function_{config.get('uid')}\n"
-        exec(import_str, globals())  # pylint: disable=exec-used
-        _logger.info(f"Executing preload function for population {config.get('uid')}.")
-        exec(f"preload_function_{config.get('uid')}()")  # pylint: disable=exec-used
+        # Check the problem file exists & format it as a module import
+        if not exists(problem_file):
+            raise FileExistsError(f"Problem file '{problem_file}' does not exist.")
+        if not problem_file.endswith(".py"):
+            raise ValueError(f"Problem file '{problem_file}' must be a python file.")
+        module: str = problem_file[:-3].replace("/", ".")
+
+
+        # Import the problem config
+        _logger.info(f"Importing the problem config for population {config.get('uid')}.")
+        exec(f"from {module} import EGP_PROBLEM_CONFIG as problem_config_{config.get('uid')}", globals())  # pylint: disable=exec-used
+        exec(f"config.update(problem_config_{config.get('uid')})")  # pylint: disable=exec-used
 
         # Import the fitness function
         _logger.info(f"Importing the fitness function for population {config.get('uid')}.")
-        fitness_import: str = config.get("fitness_import", "__configuration_error__")
-        import_str: str = f"from {fitness_import} import fitness_function as fitness_function_{config.get('uid')}\n"
-        exec(import_str, globals())  # pylint: disable=exec-used
+        exec(f"from {module} import fitness_function as fitness_function_{config.get('uid')}", globals())  # pylint: disable=exec-used
         exec(f"config['fitness_function'] = fitness_function_{config.get('uid')}")  # pylint: disable=exec-used
 
         # Import the survivability function
         _logger.info(f"Importing the survivability function for population {config.get('uid')}.")
-        survivability_import: str = config.get("survivability_import", "__configuration_error__")
-        import_str = f"from {survivability_import} import survivability_function as survivability_function_{config.get('uid')}\n"
-        exec(import_str, globals())  # pylint: disable=exec-used
-        exec(f"config['survivability_function'] = survivability_function_{config.get('uid')}")  # pylint: disable=exec-used
+        if config.get("survivability", "elitist") not in SURVIVABILITY_FUNCTIONS:
+            survivability_file: str = join(config.get("survivability", "./"), "survivability_function.py")
+            module = survivability_file[:-3].replace("/", ".")
+            import_str: str = f"from {module} import survivability_function as survivability_function_{config.get('uid')}\n"
+            exec(import_str, globals())  # pylint: disable=exec-used
+            exec(f"config['survivability_function'] = survivability_function_{config.get('uid')}")  # pylint: disable=exec-used
+        else:
+            config["survivability_function"] = SURVIVABILITY_FUNCTIONS[config.get("survivability", "elitist")]
 
     _logger.info(f"{len(p_configs)} Population configurations normalized.")
     return {u: cast(PopulationConfigNorm, c) for u, c in p_configs.items()}, p_table, pm_table

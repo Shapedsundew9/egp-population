@@ -1,208 +1,158 @@
 {
-    "uid": {
-        "type": "integer",
-        "min": 0,
-        "max": 32767,
-        "meta": {
-            "description": "Population UID is assigned by the Gene Pool if it does not already exist."
-        }
-    },
-    "population_hash": {
-        "coerce": "sha256_str_to_binary",
-        "type": "binary",
-        "maxlength": 32,
-        "meta": {
-            "description": "A SHA256 of the population config."
-        },
-        "minlength": 32, 
-        "readonly": true,
-        "default_setter": "set_population_hash"
-    },
-    "git_path": {
-        "type": "string",
-        "minlength": 1,
-        "default": ".",
-        "meta": {
-            "description": "The folder in which to find/clone the git repo."
-        },
-        "maxlength": 256
-    },
-    "git_repo": {
-        "type": "string",
-        "regex": "[a-zA-Z0-9_\\.-]{1,256}",
-        "minlength": 1,
-        "meta": {
-            "description": "The Git base URL *NOT* including the repo name. URL/git_repo.git must be a valid git repo url."
-        },
-        "maxlength": 256,
-        "nullable": true,
-        "default": null,
-        "check_with": "valid_git_repo"
-    },
-    "git_url": {
-        "type": "string",
-        "regex": "^((http|https)://)[-a-zA-Z0-9@:%._\\+~#?&//=]{2,256}\\.[a-z]{2,6}\\b([-a-zA-Z0-9@:%._\\+~#?&//=]*)$",
-        "minlength": 8,
-        "meta": {
-            "description": "The Git base URL *NOT* including the repo name. 'git_url/git_repo.git' must be a valid git repo URL."
-        },
-        "maxlength": 2048,
-        "nullable": true,
-        "default": null,
-        "check_with": "valid_git_url"
-    },
-    "git_hash": {
-        "type": "string",
-        "maxlength": 64,
-        "meta": {
-            "description": "Lower case hex SHA256 or SHA1 (in the LSB's) of the git commit to pull."
-        },
-        "minlength": 40,
-        "regex": "([0-9a-f]{40}|[0-9a-f]{64})",
-        "nullable": true,
-        "default": null,
-        "check_with": "valid_git_hash"
-    },
-    "verified": {
-        "type": "boolean",
-        "meta": {
-            "description": "?"
-        },
-        "nullable": true,
-        "default_setter": "set_verified",
-        "check_with": "valid_verified"
-    },
-    "worker_id": {
-        "coerce": "uuid_str_to_uuid",
-        "type": "uuid",
-        "required": true,
-        "meta": {
-            "description": "The worker that created this population."
-        }
-    },
-    "size": {
-        "type": "integer",
-        "min": 1,
-        "max": 2147483647,
-        "default": 128,
-        "meta": {
-            "description": "The size of the population to be created / evolved in an epoch. Usually this would be 100's may be 10's, maybe 1000's."
-        }
-    },
-    "inputs": {
-        "type": "list",
-        "required": true,
-        "minlength": 0,
-        "maxlength": 256,
-        "schema": {
-            "type": "string",
-            "min": 1,
-            "max": 256,
-            "check_with": "valid_ep_type"
-        },
-        "meta": {
-            "description": "Input interface of every individual in the population."
-        }
-    },
-    "outputs": {
-        "type": "list",
-        "required": true,
-        "minlength": 0,
-        "maxlength": 256,
-        "schema": {
-            "type": "string",
-            "min": 1,
-            "max": 256,
-            "check_with": "valid_ep_type"
-        },
-        "meta": {
-            "description": "Output interface of every individual in the population."
-        }
-    },
-    "ordered_interface_hash": {
-        "type": "integer",
-        "min": -9223372036854775808,
-        "max": 9223372036854775807,
-        "readonly": true,
-        "default_setter": "set_oih"
-    },
-    "name": {
-        "type": "string",
-        "regex": "[A-Za-z_][\\w]{0,63}",
-        "minlength": 0,
-        "maxlength": 64,
-        "nullable": true,
-        "meta": {
-            "description": "User defined name for the population. Not used by Erasmus."
-        }
-    },
-    "description":{
-        "type": "string",
-        "regex": "[ -~]{0,16384}",
-        "minlength": 0,
-        "maxlength": 16384,
-        "nullable": true,
-        "default": null,
-        "meta": {
-            "description": "User defined arbitary string. Not used by Erasmus."
-        }
-    },
-    "meta_data":{
-        "type": "string",
-        "regex": "[ -~]{0,16384}",
-        "minlength": 0,
-        "maxlength": 16384,
-        "nullable": true,
-        "default": null,
-        "meta": {
-            "description": "User defined arbitary string. Not used by Erasmus."
-        }
-    },
     "created": {
-        "required": true,
+        "check_with": "valid_created",
         "coerce": "datetime_str_to_datetime",
         "meta": {
             "description": "The UTC date and time of the populations definition creation."
         },
-        "type": "datetime",
-        "check_with": "valid_created"
+        "required": true,
+        "type": "datetime"
+    },
+    "creator": {
+        "coerce": "uuid_str_to_uuid",
+        "meta": {
+            "description": "The UUID of the creator of the problem."
+        },
+        "nullable": true,
+        "required": false,
+        "type": "uuid"
+    },
+    "description": {
+        "default": null,
+        "maxlength": 16384,
+        "meta": {
+            "description": "User defined arbitary string. Not used by Erasmus."
+        },
+        "minlength": 0,
+        "nullable": true,
+        "regex": "[ -~]{0,16384}",
+        "type": "string"
+    },
+    "egp_problem": {
+        "default": "./",
+        "maxlength": 128,
+        "meta": {
+            "description": "Either a git hash of one of the EGP problem definitions or a file path to a problem."
+        },
+        "minlength": 1,
+        "nullable": false,
+        "regex": "([0-9a-f]{40}|[0-9a-f]{64}|[ -~]{1,128}/)",
+        "type": "string"
+    },
+    "inputs": {
+        "maxlength": 256,
+        "meta": {
+            "description": "Input interface of every individual in the population."
+        },
+        "minlength": 0,
+        "required": true,
+        "schema": {
+            "check_with": "valid_ep_type",
+            "max": 256,
+            "min": 1,
+            "type": "string"
+        },
+        "type": "list"
+    },
+    "meta_data": {
+        "default": null,
+        "maxlength": 16384,
+        "meta": {
+            "description": "User defined arbitary string. Not used by Erasmus."
+        },
+        "minlength": 0,
+        "nullable": true,
+        "regex": "[ -~]{0,16384}",
+        "type": "string"
+    },
+    "name": {
+        "maxlength": 64,
+        "meta": {
+            "description": "User defined name for the population. Not used by Erasmus."
+        },
+        "minlength": 0,
+        "nullable": true,
+        "regex": "[A-Za-z_][\\w]{0,63}",
+        "type": "string"
+    },
+    "ordered_interface_hash": {
+        "default_setter": "set_oih",
+        "max": 9223372036854775807,
+        "min": -9223372036854775808,
+        "type": "integer"
+    },
+    "outputs": {
+        "maxlength": 256,
+        "meta": {
+            "description": "Output interface of every individual in the population."
+        },
+        "minlength": 0,
+        "required": true,
+        "schema": {
+            "check_with": "valid_ep_type",
+            "max": 256,
+            "min": 1,
+            "type": "string"
+        },
+        "type": "list"
+    },
+    "population_hash": {
+        "coerce": "sha256_str_to_binary",
+        "default_setter": "set_population_hash",
+        "maxlength": 32,
+        "meta": {
+            "description": "A SHA256 of the population config."
+        },
+        "minlength": 32,
+        "type": "binary"
+    },
+    "size": {
+        "default": 128,
+        "max": 2147483647,
+        "meta": {
+            "description": "The size of the population to be created / evolved in an epoch. Usually this would be 100's may be 10's, maybe 1000's."
+        },
+        "min": 1,
+        "type": "integer"
+    },
+    "survivability": {
+        "default": "elitist",
+        "maxlength": 256,
+        "meta": {
+            "description": "Either a python module path with a 'survivability_function.py' file in it or the name of a standard survivability function. End paths with '/' to avoid the possibility of name conflicts."
+        },
+        "minlength": 0,
+        "regex": "[ -~]{0,256}",
+        "type": "string"
+    },
+    "uid": {
+        "max": 32767,
+        "meta": {
+            "description": "Population UID is assigned by the Gene Pool if it does not already exist."
+        },
+        "min": 0,
+        "type": "integer"
+    },
+    "unordered_interface_hash": {
+        "default_setter": "set_uoih",
+        "max": 9223372036854775807,
+        "min": -9223372036854775808,
+        "type": "integer"
     },
     "updated": {
+        "check_with": "valid_updated",
         "coerce": "datetime_str_to_datetime",
         "meta": {
             "description": "The UTC date and time user defined fields not used by Erasmus were updated."
         },
-        "type": "datetime",
-        "check_with": "valid_updated"
+        "type": "datetime"
     },
-    "preload_import": {
-        "type": "string",
-        "default": "preload_function",
-        "minlength": 1,
-        "maxlength": 256,
-        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0,255}",
+    "worker_id": {
+        "coerce": "uuid_str_to_uuid",
         "meta": {
-            "description": "'import <git_repo>.<preload_import> as preload_function' must be valid python."
-        }
-    },
-    "fitness_import": {
-        "type": "string",
-        "default": "fitness_function",
-        "minlength": 1,
-        "maxlength": 256,
-        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0,255}",
-        "meta": {
-            "description": "'import <git_repo>.<fitness_import> as fitness_function' must be valid python."
-        }
-    },
-    "survivability_import": {
-        "type": "string",
-        "default": "survivability_function",
-        "minlength": 1,
-        "maxlength": 256,
-        "regex": "[a-zA-Z_][a-zA-Z0-9_\\.]{0,255}",
-        "meta": {
-            "description": "'import <git_repo>.<survivability_import> as survivability_function' must be valid python."
-        }
+            "description": "The worker that created this population."
+        },
+        "required": true,
+        "type": "uuid"
     }
 }

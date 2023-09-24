@@ -1,94 +1,73 @@
 {
-    "uid": {
-        "type": "SERIAL",
-        "description": "Integer UID of the population in the Gene Pool."
-    },
-    "population_hash": {
-        "type": "BYTEA[32]",
-        "primary_key": true,
-        "description": "SHA256 of the population configuration settings."
-    },
-    "git_path": {
-        "type": "VARCHAR",
-        "description": "The folder in which to find/clone the git repo."
-    },
-    "git_repo_url": {
-        "type": "VARCHAR",
-        "nullable": true,
-        "description": "The Git repo URL in which to find the fitness function definition."
-    },
-    "git_hash": {
-        "type": "BYTEA[32]",
-        "nullable": true,
-        "description": "SHA256 or SHA1 (in the LSB's) of the git commit to pull."
-    },
-    "git_hash_sha256": {
-        "type": "BOOLEAN",
-        "nullable": true,
-        "description": "True if git_hash is an SHA256. False if git_hash is SHA1."
-    },
-    "verified": {
-        "type": "BOOLEAN",
-        "description": "True if the fitness function has been verified as safe by Erasmus. NB: This is not a guarantee."
-    },
-    "worker_id": {
-        "type": "UUID",
-        "description": "The ID of the worker that created the population."
-    },
-    "active_size":  {
-        "type": "INT",
-        "description": "Number of individuals to create and/or evolve by default in each epoch (can be overridden by the active flag)."
-    },
-    "inputs": {
-        "type": "VARCHAR",
-        "description": "JSON list of valid EP_TYPE_STRs defining the target individuals inputs."
-    },
-    "outputs": {
-        "type": "VARCHAR",
-        "description": "JSON list of valid EP_TYPE_STRs defining the target individuals outputs."
-    },
-    "ordered_interface_hash": {
-        "type": "BIGINT",
-        "description": "The ordered interface hash. Is used to verify all individuals meet the population interface requirements."
-    },
-    "name": {
-        "nullable": true,
-        "type": "VARCHAR",
-        "description": "User defined arbitrary short name."
-    },
-    "description": {
-        "nullable": true,
-        "type": "VARCHAR",
-        "description": "User defined arbitrary long description."
-    },
-    "meta_data": {
-        "nullable": true,
-        "type": "VARCHAR",
-        "description": "User defined arbitary field."
-    },
     "created": {
         "default": "(NOW() AT TIME ZONE 'UTC')",
-        "type": "TIMESTAMP",
-        "description": "The time at which the population entry was created."
+        "description": "The time at which the population entry was created.",
+        "type": "TIMESTAMP"
+    },
+    "creator": {
+        "description": "The UUID of the creator of the problem.",
+        "type": "UUID"
+    },
+    "description": {
+        "description": "User defined arbitrary long description.",
+        "nullable": true,
+        "type": "VARCHAR"
+    },
+    "egp_problem": {
+        "description": "SHA256 or SHA1 (in the LSB's) of the git commit to pull OR the path to a locally defined problem.",
+        "nullable": true,
+        "type": "VARCHAR"
+    },
+    "inputs": {
+        "description": "JSON list of valid EP_TYPE_STRs defining the target individuals inputs.",
+        "type": "VARCHAR"
+    },
+    "meta_data": {
+        "description": "User defined arbitary field.",
+        "nullable": true,
+        "type": "VARCHAR"
+    },
+    "name": {
+        "description": "User defined arbitrary short name.",
+        "nullable": true,
+        "type": "VARCHAR"
+    },
+    "ordered_interface_hash": {
+        "description": "The ordered interface hash. Is used to verify all individuals meet the population interface requirements.",
+        "type": "BIGINT"
+    },
+    "outputs": {
+        "description": "JSON list of valid EP_TYPE_STRs defining the target individuals outputs.",
+        "type": "VARCHAR"
+    },
+    "population_hash": {
+        "description": "SHA256 of the population configuration settings.",
+        "primary_key": true,
+        "type": "BYTEA[32]"
+    },
+    "size": {
+        "description": "Number of individuals to create and/or evolve by default in each epoch (can be overridden by the active flag).",
+        "type": "INT"
+    },
+    "survivability": {
+        "description": "'import <git_repo>.<survivability_import> as survivability_function' must be valid python.",
+        "type": "VARCHAR"
+    },
+    "uid": {
+        "description": "Integer UID of the population in the Gene Pool.",
+        "type": "SERIAL"
+    },
+    "unordered_interface_hash": {
+        "description": "The unordered interface hash.",
+        "type": "BIGINT"
     },
     "updated": {
         "default": "(NOW() AT TIME ZONE 'UTC')",
-        "type": "TIMESTAMP",
-        "description": "The UTC date and time user defined fields not used by Erasmus were updated."
+        "description": "The UTC date and time user defined fields not used by Erasmus were updated.",
+        "type": "TIMESTAMP"
     },
-    "preload_import": {
-        "default": "preload_function",
-        "type": "VARCHAR",
-        "description": "'import <git_repo>.<preload_import> as preload_function' must be valid python."
-    },
-    "fitness_import": {
-        "default": "fitness_function",
-        "type": "VARCHAR",
-        "description": "'import <git_repo>.<fitness_import> as fitness_function' must be valid python."
-    },
-    "survivability_import": {
-        "default": "survivability_function",
-        "type": "VARCHAR",
-        "description": "'import <git_repo>.<survivability_import> as survivability_function' must be valid python."
+    "worker_id": {
+        "description": "The ID of the worker that created the population.",
+        "type": "UUID"
     }
 }

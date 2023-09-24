@@ -13,13 +13,22 @@
         "uid": 1,
         "worker_id": "70c7d47d-d162-48ce-bdd3-7073cd83cde6",
         "inputs": ["int","float","complex"],
-        "git_url": "https://github.com/Shapedsundew9/",
-        "git_repo": "egp-population",
-        "git_hash": "08e7f4ddea090e0c7989f838869680967fc55d22",
+        "egp_problem": "fd8d3b39991a5d6c6ca6be4d30499c3d923f99a8",
         "created": "2023-09-10T15:36:57.889532Z",
         "updated": "2023-09-10T16:36:57.889532Z",
         "outputs": ["str"],
-        "description": "Normalize verified as False"
+        "description": "Normalize."
+    },
+    {
+        "uid": 1,
+        "worker_id": "70c7d47d-d162-48ce-bdd3-7073cd83cde6",
+        "inputs": ["int","float","complex"],
+        "created": "2023-09-10T15:36:57.889532Z",
+        "outputs": ["str"],
+        "egp_problem": "egp-population/",
+        "name": "Minimal_population_test_configuration",
+        "description": "Valid problem path with trailing /.",
+        "meta_data": "{'test': 'test'}"
     },
     {
         "uid": 1,
@@ -30,22 +39,22 @@
         "description": "Inputs not all valid end point types."
     },
     {
-        "uid": 1,
+        "uid": -1,
         "worker_id": "70c7d47d-d162-48ce-bdd3-7073cd83cde6",
         "inputs": ["int","float","complex"],
         "created": "2023-09-10T15:36:57.889532Z",
-        "git_hash": "08e7f4ddea090e0c7989f838869680967fc55d22",
+        "egp_problem": "fd8d3b39991a5d6c6ca6be4d30499c3d923f99a8",
         "outputs": ["str"],
-        "description": "Git hash defined when other git fields are not."
+        "description": "uid out of range."
     },
     {
         "uid": 1,
         "worker_id": "70c7d47d-d162-48ce-bdd3-7073cd83cde6",
         "inputs": ["int","float","complex"],
         "created": "2023-09-10T15:36:57.889532Z",
-        "git_repo": "egp-population",
+        "egp_problem": "egp-population",
         "outputs": ["str"],
-        "description": "Git repo defined when other git fields are not."
+        "description": "Problem path without trailing /."
     },
     {
         "uid": 1,
@@ -89,7 +98,6 @@
         "created": "2023-09-10T15:36:57.889532Z",
         "updated": "3022-09-10T15:36:57.889532Z",
         "outputs": ["str"],
-        "verified": true,
         "description": "Verified defined when git_* are not."
     }
 ]
