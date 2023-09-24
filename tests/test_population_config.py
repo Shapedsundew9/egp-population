@@ -136,7 +136,6 @@ def test_configure_populations_config_exists() -> None:
     p_config_dict, _, __ = configure_populations(pconfigs, PROBLEM_DEFINITIONS, config)
 
     # Second time through the config will already exist
-    pconfigs.get("configs", [])[0]["uid"] = p_config_dict[1]["uid"]
     p_config_dict, _, __ = configure_populations(pconfigs, PROBLEM_DEFINITIONS, config)
     assert isinstance(p_config_dict, dict)
     assert 1 in p_config_dict
