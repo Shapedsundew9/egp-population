@@ -5,7 +5,7 @@ from json import dumps, load, loads
 from logging import DEBUG, Logger, NullHandler, getLogger
 from os import chdir, getcwd
 from os.path import dirname, join, exists
-from subprocess import PIPE, CompletedProcess, run
+from subprocess import CompletedProcess, run
 from typing import Callable, cast, Any
 
 from egp_physics.physics import stablize
@@ -100,12 +100,74 @@ def populations_default_config() -> PopulationsConfig:
 
 def run_cmd(cmdlist: list[str]) -> None:
     """Run a command and log the output."""
-    result: CompletedProcess[bytes] = run(cmdlist, stdout=PIPE, check=False)
+    result: CompletedProcess[bytes] = run(cmdlist, capture_output=True, check=False)
     log_level: Callable[..., None] = _logger.error if result.returncode else _logger.info
     log_level(f"stdout:\n{result.stdout.decode('utf-8')}")
     log_level(f"Response:\n{result}")
     if result.returncode:
         raise RuntimeError(f"Command \"{' '.join(cmdlist)}\" FAILED.")
+
+
+def normalize_population_config(p_config: PopulationConfig, problem_file: str, p_table: table) -> PopulationConfigNorm:
+    """Normalize a population configuration.
+
+    Args
+    ----
+    p_config: The population configuration to normalize.
+    """
+    # Check the problem file exists & format it as a module import
+    if not exists(problem_file):
+        raise FileExistsError(f"Problem file '{problem_file}' does not exist in {getcwd()}.")
+    if not problem_file.endswith(".py"):
+        raise ValueError(f"Problem file '{problem_file}' must be a python file.")
+    module: str = problem_file[:-3].replace("/", ".").replace("-", "_")
+
+    # Import the problem config (inputs, outputs & creator)
+    _logger.info(f"Importing the problem config for population {p_config.get('uid')}.")
+    _logger.debug(f"from {module} import EGP_PROBLEM_CONFIG as problem_config_{p_config.get('uid')}")
+    sys.path.append(getcwd())
+    exec(  # pylint: disable=exec-used
+        f"from {module} import EGP_PROBLEM_CONFIG as problem_config_{p_config.get('uid')}", globals(), locals()
+    )
+    exec(f"p_config['inputs'] = problem_config_{p_config.get('uid')}['inputs']", globals(), locals())  # pylint: disable=exec-used
+    exec(f"p_config['outputs'] = problem_config_{p_config.get('uid')}['outputs']", globals(), locals())  # pylint: disable=exec-used
+    exec(f"p_config['creator'] = problem_config_{p_config.get('uid')}.get('creator')", globals(), locals())  # pylint: disable=exec-used
+
+    # Calculate interface hashes
+    in_eps, _, ins = interface_definition(p_config.get("inputs", []), vtype.EP_TYPE_STR)
+    out_eps, _, outs = interface_definition(p_config.get("outputs", []), vtype.EP_TYPE_STR)
+    p_config["ordered_interface_hash"] = ordered_interface_hash(in_eps, out_eps, ins, outs)
+    p_config["unordered_interface_hash"] = unordered_interface_hash(in_eps, out_eps)
+
+    # Update the population record in the DB with the problem
+    literals: dict[str, Any] = {
+        "i": p_config.get("inputs"),
+        "o": p_config.get("outputs"),
+        "c": p_config.get("creator"),
+        "u": p_config.get("uid"),
+    }
+    p_table.update("{inputs} = {i}, {outputs} = {o}, {creator} = {c}", "{uid} = {u}", literals)
+
+    # Import the fitness function
+    _logger.info(f"Importing the fitness function for population {p_config.get('uid')}.")
+    exec(  # pylint: disable=exec-used
+        f"from {module} import fitness_function as fitness_function_{p_config.get('uid')}", globals(), locals()
+    )
+    exec(f"p_config['fitness_function'] = fitness_function_{p_config.get('uid')}", globals(), locals())  # pylint: disable=exec-used
+
+    # Import the survivability function
+    _logger.info(f"Importing the survivability function for population {p_config.get('uid')}.")
+    if p_config.get("survivability", "elitist") not in SURVIVABILITY_FUNCTIONS:
+        survivability_file: str = join(p_config.get("survivability", "./"), "survivability_function.py")
+        module = survivability_file[:-3].replace("/", ".")
+        import_str: str = f"from {module} import survivability_function as survivability_function_{p_config.get('uid')}\n"
+        exec(import_str, globals(), locals())  # pylint: disable=exec-used
+        exec(  # pylint: disable=exec-used
+            f"p_config['survivability_function'] = survivability_function_{p_config.get('uid')}", globals(), locals()
+        )
+    else:
+        p_config["survivability_function"] = SURVIVABILITY_FUNCTIONS[p_config.get("survivability", "elitist")]
+    return cast(PopulationConfigNorm, p_config)
 
 
 def configure_populations(
@@ -120,10 +182,9 @@ def configure_populations(
     populations_config: List of minimal population configurations & general parameters.
     table_config: The population pypgtable table configuration.
     """
-    p_table_config: TableConfigNorm = raw_table_config_validator.normalized(table_config)
-    p_table: table = table(p_table_config)
+    p_table: table = table(raw_table_config_validator.normalized(table_config))
     pm_table_config: TableConfigNorm = deepcopy(_POPULATION_METRICS_TABLE_DEFAULT_CONFIG)
-    pm_table_config["table"] = p_table_config["table"] + "_metrics"
+    pm_table_config["table"] = p_table.raw.config["table"] + "_metrics"
     pm_table: table = table(pm_table_config)
 
     # Final bit is importing fitness & survivability functions
@@ -144,9 +205,8 @@ def configure_populations(
             p_config.update(p_config_norm)
             p_config["uid"] = p_table[config["name"]]["uid"]
 
-        _logger.info(f"Loading population name: {config.get('name')}, UID: {config.get('uid')}")
-
         # Get the problem definition
+        _logger.info(f"Loading population name: {config.get('name')}, UID: {config.get('uid')}")
         pdef: dict[str, Any] = problem_dict.get(p_config.get("egp_problem", "./"), {})
         if not pdef:
             _logger.info(f"Problem definition '{p_config.get('egp_problem', './')}' not found in problem definitions.")
@@ -164,8 +224,7 @@ def configure_populations(
             if not exists(join(pdef["git_folder"], pdef["root_path"])):
                 _logger.info(f"Git repo '{pdef['git_repo']}' checking out {pdef['root_path']} at commit {pdef['git_hash']}.")
                 chdir(pdef["git_folder"])
-                operation: str = "add" if exists(".git/info/sparse-checkout") else "set"
-                run_cmd(["git", "sparse-checkout", operation, "--no-cone", pdef["root_path"]])
+                run_cmd(["git", "sparse-checkout", ("set", "add")[exists(".git/info/sparse-checkout")], "--no-cone", pdef["root_path"]])
                 run_cmd(["git", "checkout", pdef["git_hash"], "--", pdef["root_path"]])
                 if not exists(join(pdef["root_path"], "fitness_function.py")):
                     raise FileNotFoundError(f"Problem file '{join(pdef['root_path'], 'fitness_function.py')}' does not exist.")
@@ -177,57 +236,9 @@ def configure_populations(
             if exists("requirements.txt"):
                 run_cmd(["pip", "install", "-r", "requirements.txt"])
             chdir(root_wd)
-
             problem_file: str = join(pdef["git_folder"], pdef["root_path"], "fitness_function.py")
 
-        # Check the problem file exists & format it as a module import
-        if not exists(problem_file):
-            raise FileExistsError(f"Problem file '{problem_file}' does not exist in {getcwd()}.")
-        if not problem_file.endswith(".py"):
-            raise ValueError(f"Problem file '{problem_file}' must be a python file.")
-        module: str = problem_file[:-3].replace("/", ".").replace("-", "_")
-
-        # Import the problem config (inputs, outputs & creator)
-        _logger.info(f"Importing the problem config for population {p_config.get('uid')}.")
-        _logger.debug(f"from {module} import EGP_PROBLEM_CONFIG as problem_config_{p_config.get('uid')}")
-        sys.path.append(getcwd())
-        exec(  # pylint: disable=exec-used
-            f"from {module} import EGP_PROBLEM_CONFIG as problem_config_{p_config.get('uid')}", globals(), locals()
-        )
-        exec(f"p_config['inputs'] = problem_config_{p_config.get('uid')}['inputs']", globals(), locals())  # pylint: disable=exec-used
-        exec(f"p_config['outputs'] = problem_config_{p_config.get('uid')}['outputs']", globals(), locals())  # pylint: disable=exec-used
-        exec(f"p_config['creator'] = problem_config_{p_config.get('uid')}.get('creator')", globals(), locals())  # pylint: disable=exec-used
-
-        # Calculate interface hashes
-        in_eps, _, ins = interface_definition(p_config.get("inputs", []), vtype.EP_TYPE_STR)
-        out_eps, _, outs = interface_definition(p_config.get("outputs", []), vtype.EP_TYPE_STR)
-        p_config["ordered_interface_hash"] = ordered_interface_hash(in_eps, out_eps, ins, outs)
-        p_config["unordered_interface_hash"] = unordered_interface_hash(in_eps, out_eps)
-
-        # Update the population record in the DB with the problem
-        literals: dict[str, Any] = {"i": p_config["inputs"], "o": p_config["outputs"], "c": p_config["creator"], "u": p_config["uid"]}
-        p_table.update("{inputs} = {i}, {outputs} = {o}, {creator} = {c}", "{uid} = {u}", literals)
-
-        # Import the fitness function
-        _logger.info(f"Importing the fitness function for population {p_config.get('uid')}.")
-        exec(  # pylint: disable=exec-used
-            f"from {module} import fitness_function as fitness_function_{p_config.get('uid')}", globals(), locals()
-        )
-        exec(f"p_config['fitness_function'] = fitness_function_{p_config.get('uid')}", globals(), locals())  # pylint: disable=exec-used
-
-        # Import the survivability function
-        _logger.info(f"Importing the survivability function for population {p_config.get('uid')}.")
-        if p_config.get("survivability", "elitist") not in SURVIVABILITY_FUNCTIONS:
-            survivability_file: str = join(p_config.get("survivability", "./"), "survivability_function.py")
-            module = survivability_file[:-3].replace("/", ".")
-            import_str: str = f"from {module} import survivability_function as survivability_function_{p_config.get('uid')}\n"
-            exec(import_str, globals(), locals())  # pylint: disable=exec-used
-            exec(   # pylint: disable=exec-used
-                f"p_config['survivability_function'] = survivability_function_{p_config.get('uid')}", globals(), locals()
-            )
-        else:
-            p_config["survivability_function"] = SURVIVABILITY_FUNCTIONS[p_config.get("survivability", "elitist")]
-        p_configs.append(p_config)
+        p_configs.append(normalize_population_config(cast(PopulationConfig, p_config), problem_file, p_table))
 
     _logger.info(f"{len(p_configs)} Population configurations normalized.")
     return {c["uid"]: cast(PopulationConfigNorm, c) for c in p_configs}, p_table, pm_table

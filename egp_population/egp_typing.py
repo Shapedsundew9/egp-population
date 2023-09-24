@@ -39,6 +39,8 @@ class PopulationConfig(TypedDict):
     name: Required[str]
     inputs: NotRequired[list[str]]
     outputs: NotRequired[list[str]]
+    ordered_interface_hash: NotRequired[int]
+    unordered_interface_hash: NotRequired[int]
     description: NotRequired[str | None]
     meta_data: NotRequired[str | None]
     created: NotRequired[datetime | str]
