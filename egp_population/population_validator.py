@@ -24,36 +24,6 @@ class _population_entry_validator(base_validator):
         if not validate(value, val_t):
             self._error(field, f"ep_type {value} does not exist with vtype {val_t}.")
 
-    def _check_with_valid_git_url(self, field: str, value: str | None) -> None:
-        no_url: bool = value is None
-        no_hash: bool = self.document.get("git_hash", None) is None
-        no_repo: bool = self.document.get("git_repo", None) is None
-        if not (no_url == no_hash and no_hash == no_repo):
-            self._error(
-                field,
-                "All of 'git_url', 'git_hash' & 'git_repo' must be defined or all must be None.",
-            )
-
-    def _check_with_valid_git_repo(self, field: str, value: bool | None) -> None:
-        no_url: bool = self.document.get("git_url", None) is None
-        no_hash: bool = self.document.get("git_hash", None) is None
-        no_repo: bool = value is None
-        if not (no_url == no_hash and no_hash == no_repo):
-            self._error(
-                field,
-                "All of 'git_url', 'git_hash' & 'git_repo' must be defined or all must be None.",
-            )
-
-    def _check_with_valid_git_hash(self, field: str, value: bytes | None) -> None:
-        no_url: bool = self.document.get("git_url", None) is None
-        no_hash: bool = value is None
-        no_repo: bool = self.document.get("git_repo", None) is None
-        if not (no_url == no_hash and no_hash == no_repo):
-            self._error(
-                field,
-                "All of 'git_url', 'git_hash' & 'git_repo' must be defined or all must be None.",
-            )
-
     def _check_with_valid_created(self, field: str, value: datetime) -> None:
         if value > datetime.utcnow():
             self._error(
@@ -72,18 +42,6 @@ class _population_entry_validator(base_validator):
             )
         if value < self.document["created"]:
             self._error(field, "A record cannot be updated before it has been created.")
-
-    def _normalize_default_setter_set_oih(self, document) -> int:
-        val_t: vtype = document.get("vt", vtype.EP_TYPE_STR)
-        o_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["outputs"], val_t)
-        i_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["inputs"], val_t)
-        return ordered_interface_hash(i_def[0], o_def[0], i_def[2], o_def[2])
-
-    def _normalize_default_setter_set_uoih(self, document) -> int:
-        val_t: vtype = document.get("vt", vtype.EP_TYPE_STR)
-        o_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["outputs"], val_t)
-        i_def: tuple[tuple[int, ...], list[int], bytes] = interface_definition(self.document["inputs"], val_t)
-        return unordered_interface_hash(i_def[0], o_def[0])
 
 
 population_entry_validator: _population_entry_validator = _population_entry_validator(POPULATION_ENTRY_SCHEMA)

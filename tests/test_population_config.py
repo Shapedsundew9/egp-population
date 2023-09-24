@@ -5,7 +5,7 @@ from os import chdir, getcwd, mkdir
 from os.path import exists, join
 from subprocess import PIPE, CompletedProcess, run
 from tempfile import TemporaryDirectory
-from typing import Any, Callable
+from typing import Any, Callable, cast
 from uuid import uuid4
 
 import pytest
@@ -110,13 +110,33 @@ def test_configure_populations_local_file_error() -> None:
         configure_populations({"configs": [pconfig]}, PROBLEM_DEFINITIONS, config)
 
 
-def test_configure_populations_default() -> None:
+def test_configure_populations_local_no_name_error() -> None:
+    """Test that the population configuration is correct."""
+    config: TableConfigNorm = population_table_default_config()
+    config["delete_db"] = True
+    pconfig: dict[str, Any] = {
+        "uid": 1,
+        "worker_id": "70c7d47d-d162-48ce-bdd3-7073cd83cde6",
+        "created": "2023-09-10T15:36:57.889532Z",
+        "egp_problem": DIRECTORY_PATH + "/",
+        "description": "Valid problem path with trailing /.",
+        "meta_data": "{'test': 'test'}",
+    }
+    with pytest.raises(ValueError):
+        configure_populations({"configs": [pconfig]}, PROBLEM_DEFINITIONS, config)  # type: ignore
+
+
+def test_configure_populations_config_exists() -> None:
     """Test that the population configuration is correct."""
     config: TableConfigNorm = population_table_default_config()
     config["delete_db"] = True
     pconfigs: PopulationsConfig = populations_default_config()
     pconfigs.get("configs", [])[0]["worker_id"] = uuid4()
     _logger.debug(f"pconfigs:\n{pconfigs}")
+    p_config_dict, _, __ = configure_populations(pconfigs, PROBLEM_DEFINITIONS, config)
+
+    # Second time through the config will already exist
+    pconfigs.get("configs", [])[0]["uid"] = p_config_dict[1]["uid"]
     p_config_dict, _, __ = configure_populations(pconfigs, PROBLEM_DEFINITIONS, config)
     assert isinstance(p_config_dict, dict)
     assert 1 in p_config_dict
