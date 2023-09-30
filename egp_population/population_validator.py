@@ -5,13 +5,7 @@ from os.path import dirname, join
 from typing import Any
 from datetime import datetime
 from egp_utils.base_validator import base_validator
-from egp_types.ep_type import (
-    validate,
-    ordered_interface_hash,
-    unordered_interface_hash,
-    interface_definition,
-    vtype,
-)
+from egp_types.ep_type import validate, vtype
 
 
 with open(join(dirname(__file__), "formats/population_entry_format.json"), "r", encoding="utf8") as file_ptr:
