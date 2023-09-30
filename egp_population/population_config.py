@@ -1,4 +1,5 @@
 """Erasmus GP populations module."""
+from __future__ import annotations
 import sys
 from copy import deepcopy
 from json import dumps, load, loads
@@ -6,13 +7,13 @@ from logging import DEBUG, Logger, NullHandler, getLogger
 from os import chdir, getcwd
 from os.path import dirname, join, exists
 from subprocess import CompletedProcess, run
-from typing import Callable, cast, Any
+from typing import Callable, cast, Any, TYPE_CHECKING
 
 from egp_physics.physics import stablize
-from egp_stores.gene_pool import gene_pool
 from egp_types.eGC import eGC
 from egp_types.reference import ref_str
 from egp_types.ep_type import interface_definition, ordered_interface_hash, unordered_interface_hash, vtype
+from egp_utils.common import default_erasumus_db_config
 from pypgtable import table
 from pypgtable.pypgtable_typing import (
     Conversions,
@@ -25,6 +26,11 @@ from pypgtable.validators import raw_table_config_validator
 from .population_validator import population_entry_validator
 from .egp_typing import PopulationConfig, PopulationsConfig, PopulationConfigNorm
 from .survivability import SURVIVABILITY_FUNCTIONS
+
+
+# Circular import & runtime import avoidance
+if TYPE_CHECKING:
+    from egp_stores.gene_pool import gene_pool
 
 
 _logger: Logger = getLogger(__name__)
@@ -55,7 +61,7 @@ _POPULATIONS_CONVERSIONS: Conversions = (
 
 _POPULATION_TABLE_DEFAULT_CONFIG: TableConfigNorm = raw_table_config_validator.normalized(
     {
-        "database": {"dbname": "erasmus"},
+        "database": default_erasumus_db_config(),
         "table": "gene_pool_populations",
         "schema": _POPULATION_TABLE_SCHEMA,
         "create_table": True,
@@ -66,7 +72,7 @@ _POPULATION_TABLE_DEFAULT_CONFIG: TableConfigNorm = raw_table_config_validator.n
 
 _POPULATION_METRICS_TABLE_DEFAULT_CONFIG: TableConfigNorm = raw_table_config_validator.normalized(
     {
-        "database": {"dbname": "erasmus"},
+        "database": default_erasumus_db_config(),
         "table": "populations_metrics",
         "schema": _POPULATION_METRICS_TABLE_SCHEMA,
         "create_table": True,
@@ -79,7 +85,8 @@ _POPULATIONS_DEFAULT_CONFIG: PopulationsConfig = {
         {
             "name": "Number tree problem (default).",
             "description": "This population has been set up using the default configuration.",
-            "egp_problem": "b789df5a4654a5165407f84c7509bedca9af8012",
+            "egp_problem": "b789df5a4654a5165407f84c7509bedca9af8012"
+            # 9fec5181e74ccedf96f2a0c664b85b44ef30f331 includes requirements.txt
         }
     ]
 }
@@ -141,8 +148,8 @@ def normalize_population_config(p_config: PopulationConfig, problem_file: str, p
 
     # Update the population record in the DB with the problem
     literals: dict[str, Any] = {
-        "i": p_config.get("inputs"),
-        "o": p_config.get("outputs"),
+        "i": p_table.encode_value("inputs", p_config.get("inputs")),
+        "o": p_table.encode_value("outputs", p_config.get("outputs")),
         "c": p_config.get("creator"),
         "u": p_config.get("uid"),
     }
@@ -199,11 +206,14 @@ def configure_populations(
         # Does the configuration already exist?
         p_config: dict[str, Any] = p_table.get(config["name"], {})
         if not p_config:
+            _logger.info(f"Population configuration '{config['name']}' does not exist. Creating.")
             p_config_norm: PopulationConfig = population_entry_validator.normalized(config)
             assert p_config_norm is not None, population_entry_validator.error_str()
             p_table.insert([p_config_norm], ("uid",), "tuple")
             p_config.update(p_config_norm)
             p_config["uid"] = p_table[config["name"]]["uid"]
+        else:
+            _logger.info(f"Population configuration '{config['name']}' exists.")
 
         # Get the problem definition
         _logger.info(f"Loading population name: {config.get('name')}, UID: {config.get('uid')}")
@@ -232,9 +242,11 @@ def configure_populations(
 
             # Install the requirements if needed
             chdir(join(pdef["git_folder"], pdef["root_path"]))
-            _logger.info("Installing requirements.")
             if exists("requirements.txt"):
+                _logger.info("Installing requirements.")
                 run_cmd(["pip", "install", "-r", "requirements.txt"])
+            else:
+                _logger.info("No requirements.txt file found.")
             chdir(root_wd)
             problem_file: str = join(pdef["git_folder"], pdef["root_path"], "fitness_function.py")
 
@@ -255,7 +267,15 @@ def new_population(population_config: PopulationConfigNorm, gpool: gene_pool, nu
     num: The number of GC's to create. If None it is population_config['active_size']
     """
     # Check the population index exists
-    num_to_create: int = num if num is not None else population_config.get("active_size", 100)
+    # TODO: Need to add modes for creating new populations
+    #     Mixture of subsets of from a set of populations with matching interfaces of the following:
+    #         a. Fittest individuals
+    #         b. Random individuals
+    #         c. Fittest-diverse individuals
+    #         d. Specific individuals (any population)
+    #         e. eGC's with same interfaces
+    #     pGC's with the same criteria as above
+    num_to_create: int = num if num is not None else population_config["size"]
     _logger.info(f"Creating {num_to_create} GC's for population index: {population_config['uid']}")
 
     # Create some new gGC's & mark them as individuals too.

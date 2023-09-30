@@ -5,14 +5,20 @@ from os import chdir, getcwd, mkdir
 from os.path import exists, join
 from subprocess import PIPE, CompletedProcess, run
 from tempfile import TemporaryDirectory
-from typing import Any, Callable, cast
+from typing import Any, Callable
 from uuid import uuid4
+from copy import deepcopy
 
 import pytest
 from pypgtable.pypgtable_typing import TableConfigNorm
 
 from egp_population.egp_typing import PopulationConfig, PopulationsConfig
-from egp_population.population_config import configure_populations, population_table_default_config, populations_default_config
+from egp_population.population_config import configure_populations, population_table_default_config, populations_default_config, new_population
+from egp_stores.gene_pool import default_config as gp_default_config
+from egp_stores.gene_pool import gene_pool
+from egp_stores.genomic_library import default_config as gl_default_config
+from egp_stores.genomic_library import genomic_library
+from egp_stores.egp_typing import GenePoolConfigNorm
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
@@ -135,7 +141,8 @@ def test_configure_populations_config_exists() -> None:
     _logger.debug(f"pconfigs:\n{pconfigs}")
     p_config_dict, _, __ = configure_populations(pconfigs, PROBLEM_DEFINITIONS, config)
 
-    # Second time through the config will already exist
+    # Second time through the config will already exist (if we do not drop the DB)
+    config["delete_db"] = False
     p_config_dict, _, __ = configure_populations(pconfigs, PROBLEM_DEFINITIONS, config)
     assert isinstance(p_config_dict, dict)
     assert 1 in p_config_dict
@@ -176,3 +183,52 @@ def test_configure_populations_local_survivability() -> None:
     assert isinstance(p_config_dict, dict)
     assert 1 in p_config_dict
     assert p_config_dict[1]["inputs"] == ["int", "int"]
+
+
+def test_configure_populations_problem_with_requirments() -> None:
+    """Test that the population configuration is correct."""
+    config: TableConfigNorm = population_table_default_config()
+    config["delete_db"] = True
+    pconfigs: PopulationsConfig = populations_default_config()
+    pconfigs.get("configs", [])[0]["worker_id"] = uuid4()
+    pconfigs.get("configs", [])[0]["egp_problem"] = "9fec5181e74ccedf96f2a0c664b85b44ef30f331"
+    problem_definitions: list[dict[str, Any]] = deepcopy(PROBLEM_DEFINITIONS)
+    problem_definitions.append(
+        {
+            "root_path": "number_tree",
+            "description": "A tree of numbers",
+            "git_hash": "9fec5181e74ccedf96f2a0c664b85b44ef30f331",
+            "git_repo": "egp-playground",
+            "git_url": "https://github.com/Shapedsundew9/",
+            "last_verified_live": "2023-09-16T21:35:20.913252Z",
+            "name": "Number Tree",
+            "ordered_interface_hash": 2017383754777200068,
+            "unordered_interface_hash": -498239222030527776
+        }
+    )
+    _logger.debug(f"pconfigs:\n{pconfigs}")
+    p_config_dict, _, __ = configure_populations(pconfigs, problem_definitions, config)
+    assert isinstance(p_config_dict, dict)
+    assert 1 in p_config_dict
+    assert p_config_dict[1]["inputs"] == ["int", "int"]
+
+
+def test_new_population() -> None:
+    """Test that the population configuration is correct."""
+    config: TableConfigNorm = population_table_default_config()
+    config["delete_db"] = True
+    pconfigs: PopulationsConfig = populations_default_config()
+    pconfigs.get("configs", [])[0]["worker_id"] = uuid4()
+    p_config_dict, _, __ = configure_populations(pconfigs, PROBLEM_DEFINITIONS, config)
+
+    # Define genomic library configuration & instanciate
+    gl_config: TableConfigNorm = gl_default_config()
+    glib: genomic_library = genomic_library(gl_config)
+
+    # Establish the Gene Pool
+    gp_config: GenePoolConfigNorm = gp_default_config()
+    gpool: gene_pool = gene_pool(p_config_dict, glib, gp_config)
+    gpool.sub_process_init()
+
+    # Create a new population for population UID = 1
+    new_population(p_config_dict[1], gpool)

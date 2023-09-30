@@ -73,11 +73,12 @@ class PopulationConfigNorm(TypedDict):
 class PopulationsConfig(TypedDict):
     """Type definition."""
 
+    worker_id: NotRequired[UUID | str]
     configs: NotRequired[list[PopulationConfig]]
 
 
 class PopulationsConfigNorm(TypedDict):
     """Type definition."""
 
+    worker_id: UUID
     configs: list[PopulationConfigNorm]
-    error_on_commit_hash_mismatch: bool

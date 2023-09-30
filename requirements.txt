@@ -7,10 +7,7 @@
 #coverage != 3.5             # Version Exclusion. Anything except version 3.5
 #Mopidy-Dirble ~= 1.1        # Compatible release. Same as >= 1.1, == 1.*
 #
-# NOTE: pscopg2 requires sudo apt install posgresql libpq-dev
-# NOTE: Need sudo apt install graphviz
-# NOTE: Need python-graph-tool from https://git.skewed.de/count0/graph-tool/-/wikis/installation-instructions
-#
+
 
 ###### Refer to other requirements files ######
 #-r other-requirements.txt
