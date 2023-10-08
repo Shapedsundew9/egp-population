@@ -274,6 +274,7 @@ def new_population(population_config: PopulationConfigNorm, gpool: gene_pool, nu
     #         c. Fittest-diverse individuals
     #         d. Specific individuals (any population)
     #         e. eGC's with same interfaces
+    #         f. Most survivable individuals
     #     pGC's with the same criteria as above
     num_to_create: int = num if num is not None else population_config["size"]
     _logger.info(f"Creating {num_to_create} GC's for population index: {population_config['uid']}")
@@ -292,5 +293,6 @@ def new_population(population_config: PopulationConfigNorm, gpool: gene_pool, nu
 
         rgc["population_uid"] = population_config["uid"]
         gpool.pool[rgc["ref"]] = rgc
+        gpool.pool[rgc["ref"]]["active"] = True
         gpool.pool.update(fgc_dict)
         _logger.debug(f'Created GGCs to add to Gene Pool: {[ref_str(ggc["ref"]) for ggc in (rgc, *fgc_dict.values())]}')

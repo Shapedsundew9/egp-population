@@ -1,7 +1,7 @@
 """ The survivability function is used to determine which solutions continue to be evolved & which will be deleted.
-    It is called after each epoch and has 2 ways to define the next epoch:
-        1. Set 'active' to True for the individuals to continue to be evolved. Survivability is ignored.
-        2. Set 'active' to False for all individuals and 'active_size' individuals with the highest survivability will be evolved.
+    It is called after each epoch and sets the survivbability value and the 'active' flag for each individual. Up to
+    'active size' individuals with the highest survivability of the 'active' set will be evolved (the 'active' flag will
+    be cleared on the others). If no individuals are marked as 'active' evolution will stop.
     NOTE: In the case of ties in survivability crossing the 'active_size' limit the individuals with the same survivability
     will be chosen at random until the limit is reached.
 
