@@ -9,7 +9,7 @@ from os.path import dirname, join, exists
 from subprocess import CompletedProcess, run
 from typing import Callable, cast, Any, TYPE_CHECKING
 
-from egp_physics.physics import stablize
+from egp_physics.fundamental import stablize
 from egp_types.eGC import eGC
 from egp_types.reference import ref_str
 from egp_types.ep_type import interface_definition, ordered_interface_hash, unordered_interface_hash, vtype
