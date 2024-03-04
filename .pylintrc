@@ -273,10 +273,10 @@ exclude-too-few-public-methods=
 ignored-parents=
 
 # Maximum number of arguments for function / method.
-max-args=8
+max-args=5
 
 # Maximum number of attributes for a class (see R0902).
-max-attributes=15
+max-attributes=7
 
 # Maximum number of boolean expressions in an if statement (see R0916).
 max-bool-expr=5
@@ -300,14 +300,14 @@ max-returns=6
 max-statements=50
 
 # Minimum number of public methods for a class (see R0903).
-min-public-methods=1
+min-public-methods=2
 
 
 [EXCEPTIONS]
 
 # Exceptions that will emit a warning when caught.
-overgeneral-exceptions=BaseException,
-                       Exception
+overgeneral-exceptions=builtins.BaseException,
+                       builtins.Exception
 
 
 [FORMAT]
@@ -446,7 +446,7 @@ notes-rgx=
 [REFACTORING]
 
 # Maximum number of nested blocks for function / method body
-max-nested-blocks=6
+max-nested-blocks=5
 
 # Complete name of functions that never returns. When checking for
 # inconsistent-return-statements if a never returning function is called then

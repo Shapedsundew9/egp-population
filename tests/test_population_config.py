@@ -13,7 +13,12 @@ import pytest
 from pypgtable.pypgtable_typing import TableConfigNorm
 
 from egp_population.egp_typing import PopulationConfig, PopulationsConfig
-from egp_population.population_config import configure_populations, population_table_default_config, populations_default_config, new_population
+from egp_population.population_config import (
+    configure_populations,
+    population_table_default_config,
+    populations_default_config,
+    new_population,
+)
 from egp_stores.gene_pool import default_config as gp_default_config
 from egp_stores.gene_pool import gene_pool
 from egp_stores.genomic_library import default_config as gl_default_config
@@ -203,7 +208,7 @@ def test_configure_populations_problem_with_requirments() -> None:
             "last_verified_live": "2023-09-16T21:35:20.913252Z",
             "name": "Number Tree",
             "ordered_interface_hash": 2017383754777200068,
-            "unordered_interface_hash": -498239222030527776
+            "unordered_interface_hash": -498239222030527776,
         }
     )
     _logger.debug(f"pconfigs:\n{pconfigs}")
